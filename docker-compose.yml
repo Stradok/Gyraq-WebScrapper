@@ -1,0 +1,17 @@
+services:
+  scraper:
+    build: .
+    container_name: maps-scraper
+    restart: unless-stopped
+    shm_size: "2gb"
+    environment:
+      QUERIES_FILE: /app/data/queries.yaml
+      RESULTS_DIR: /app/data/results
+      POLL_INTERVAL_SECONDS: "30"
+      DELAY_BETWEEN_QUERIES_MIN: "20"
+      DELAY_BETWEEN_QUERIES_MAX: "60"
+      REVIEWS_PER_BUSINESS: "5"
+      HEADLESS: "true"
+      LOG_LEVEL: INFO
+    volumes:
+      - ./data:/app/data

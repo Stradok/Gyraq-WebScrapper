@@ -1,0 +1,13 @@
+# Add one entry per search you want scraped. The scraper watches this file
+# while it's running - just save it and a new "pending" entry gets picked up
+# within POLL_INTERVAL_SECONDS.
+#
+# Fields:
+#   query        - required. What you'd type into Google Maps search.
+#   max_results  - optional, default 60. Roughly how many listings to pull.
+#   status       - managed by the scraper: pending -> running -> done | error.
+#                  Leave it out (or delete it) to re-run a query.
+#
+# Example (uncomment to try it):
+# - query: "coffee shops in Austin, TX"
+#   max_results: 40
