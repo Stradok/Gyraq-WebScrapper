@@ -22,3 +22,6 @@ HEADLESS = _bool("HEADLESS", True)
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
 NAV_TIMEOUT_MS = int(os.environ.get("NAV_TIMEOUT_MS", "45000"))
+
+API_HOST = os.environ.get("API_HOST", "0.0.0.0")
+API_PORT = int(os.environ.get("API_PORT", "8080"))

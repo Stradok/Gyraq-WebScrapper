@@ -5,9 +5,16 @@ A Google Maps scraper for local businesses. It drives a real Chromium browser
 name, category, rating, address, phone, website, weekly hours, coordinates,
 and a handful of recent reviews.
 
-It runs as a long-lived Docker container: you drop search queries into a
-YAML file, and it works through them continuously, writing a CSV and a JSON
-file per query.
+It runs as a long-lived Docker container with two ways to feed it work:
+
+- **A YAML queue file** (`data/queries.yaml`) — drop search queries in, it
+  works through them continuously, writing a CSV and a JSON file per query.
+- **An HTTP API** (`http://localhost:8080`) — for driving it from something
+  like n8n. `POST /scrape` to start a search, poll `GET /jobs/{id}` for the
+  result as JSON. See [Using it from n8n](#using-it-from-n8n) below.
+
+Both share the same browser/worker, so queries from either source just queue
+up behind each other.
 
 > **Note:** this scrapes Google Maps' web UI directly, which is against
 > Google's Terms of Service. Use responsibly — the container adds randomized
@@ -80,6 +87,58 @@ field added once it's processed, plus `result_count`, `csv_path`,
 `json_path`, and timestamps. Delete the `status` line (or the whole entry
 and re-add it) to have it picked up again.
 
+## Using it from n8n
+
+The container also runs a small HTTP API on port `8080`, published to
+`127.0.0.1` only (i.e. reachable from the same machine, not the rest of the
+network — see the note below if n8n itself runs in Docker).
+
+**1. Start a scrape** — `POST` a query, get back a job id immediately:
+
+```bash
+curl -X POST http://localhost:8080/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"query": "gyms in Chicago, IL", "max_results": 20}'
+```
+```json
+{"job_id": "fec0c255a123", "status": "queued", ...}
+```
+
+**2. Poll for the result** — scrapes take anywhere from a few seconds to a
+few minutes depending on `max_results`, so poll until `status` is `done` (or
+`error`):
+
+```bash
+curl http://localhost:8080/jobs/fec0c255a123
+```
+```json
+{
+  "job_id": "fec0c255a123",
+  "status": "done",
+  "result_count": 20,
+  "results": [ { "name": "...", "address": "...", "phone": "...", "reviews": [...] }, ... ],
+  "csv_path": "/app/data/results/gyms_in_chicago_il_....csv",
+  "json_path": "/app/data/results/gyms_in_chicago_il_....json"
+}
+```
+
+**In n8n**, this is two HTTP Request nodes:
+
+- **HTTP Request** (POST) → `http://localhost:8080/scrape`, JSON body
+  `{"query": "...", "max_results": ...}` → returns `job_id`.
+- **HTTP Request** (GET) → `http://localhost:8080/jobs/{{ $json.job_id }}`,
+  wired into a **Wait** node + loop (or the "retry on fail" option) until
+  `status` isn't `queued`/`running` — then the `results` array is ready to
+  feed into the rest of the workflow.
+
+Other endpoints: `GET /jobs` lists every job with its status, `GET /health`
+is a plain liveness check.
+
+> **If n8n also runs in Docker** on the same laptop, `localhost` inside the
+> n8n container won't reach the scraper container. Either put both in the
+> same `docker-compose.yml` / Docker network and call it by service name
+> (`http://scraper:8080`), or run n8n with `--network host`.
+
 ## Configuration
 
 Set these as environment variables (see `docker-compose.yml`):
@@ -92,6 +151,7 @@ Set these as environment variables (see `docker-compose.yml`):
 | `DEFAULT_MAX_RESULTS` | `60` | Used when a query entry doesn't set `max_results` |
 | `HEADLESS` | `true` | Set to `false` to run Chromium with a visible window (needs a display) |
 | `LOG_LEVEL` | `INFO` | Python logging level |
+| `API_PORT` | `8080` | Port the HTTP API listens on inside the container |
 
 ## Project layout
 
@@ -99,8 +159,10 @@ Set these as environment variables (see `docker-compose.yml`):
 Dockerfile / docker-compose.yml   container + Chromium setup
 data/queries.yaml                 the job queue (mounted volume)
 data/results/                     CSV/JSON output (mounted volume)
-src/main.py                       entrypoint, logging setup
-src/queue_runner.py               watches queries.yaml, drives the loop
+src/main.py                       entrypoint: starts the API + worker thread
+src/api.py                        HTTP API (FastAPI): POST /scrape, GET /jobs/{id}
+src/jobs.py                       in-memory job store shared by the API and worker
+src/queue_runner.py               worker loop: drains API jobs, then queries.yaml
 src/maps_scraper.py               Playwright scraping logic
 src/exporter.py                   CSV/JSON writers
 src/models.py                     Business/Review data model

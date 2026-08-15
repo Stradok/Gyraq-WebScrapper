@@ -1,7 +1,11 @@
 import logging
 import sys
+import threading
+
+import uvicorn
 
 from . import config
+from .api import app
 from .queue_runner import run_forever
 
 
@@ -18,8 +22,13 @@ def main() -> None:
     log = logging.getLogger("main")
     log.info("Starting Google Maps scraper service")
     log.info("queries_file=%s results_dir=%s", config.QUERIES_FILE, config.RESULTS_DIR)
+    log.info("API listening on %s:%d", config.API_HOST, config.API_PORT)
+
+    worker = threading.Thread(target=run_forever, daemon=True, name="scraper-worker")
+    worker.start()
+
     try:
-        run_forever()
+        uvicorn.run(app, host=config.API_HOST, port=config.API_PORT, log_level=config.LOG_LEVEL.lower())
     except KeyboardInterrupt:
         log.info("Interrupted, shutting down.")
 
