@@ -139,6 +139,18 @@ is a plain liveness check.
 > same `docker-compose.yml` / Docker network and call it by service name
 > (`http://scraper:8080`), or run n8n with `--network host`.
 
+## Deduplication
+
+By default, the scraper remembers every business it has ever returned
+(keyed by Google's internal place ID, extracted from the listing URL) in
+`data/seen_places.txt`. Overlapping or repeated searches — including across
+container restarts, since that file lives in the mounted `data/` folder —
+skip anything already captured instead of re-scraping it, and the skip
+happens *before* opening the listing page, not after.
+
+To re-scrape everything fresh, delete `data/seen_places.txt`. To disable
+deduplication entirely, set `SKIP_ALREADY_SEEN=false`.
+
 ## Configuration
 
 Set these as environment variables (see `docker-compose.yml`):
@@ -148,6 +160,7 @@ Set these as environment variables (see `docker-compose.yml`):
 | `POLL_INTERVAL_SECONDS` | `30` | How often to check `queries.yaml` for new work |
 | `DELAY_BETWEEN_QUERIES_MIN` / `_MAX` | `20` / `60` | Random pause between queries, in seconds |
 | `REVIEWS_PER_BUSINESS` | `5` | Max recent reviews to capture per business |
+| `SKIP_ALREADY_SEEN` | `true` | Skip businesses already captured in a previous run |
 | `DEFAULT_MAX_RESULTS` | `60` | Used when a query entry doesn't set `max_results` |
 | `HEADLESS` | `true` | Set to `false` to run Chromium with a visible window (needs a display) |
 | `LOG_LEVEL` | `INFO` | Python logging level |

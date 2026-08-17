@@ -25,3 +25,6 @@ NAV_TIMEOUT_MS = int(os.environ.get("NAV_TIMEOUT_MS", "45000"))
 
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("API_PORT", "8080"))
+
+SKIP_ALREADY_SEEN = _bool("SKIP_ALREADY_SEEN", True)
+SEEN_STORE_FILE = os.environ.get("SEEN_STORE_FILE", "data/seen_places.txt")

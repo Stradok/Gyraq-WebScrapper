@@ -6,3 +6,4 @@ venv/
 # scraped output stays local, only the queue file template is tracked
 data/results/*
 !data/results/.gitkeep
+data/seen_places.txt

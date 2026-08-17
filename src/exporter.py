@@ -46,7 +46,7 @@ def write_results(query: str, businesses: list[Business], results_dir: str) -> t
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS, extrasaction="ignore")
         writer.writeheader()
         for b in businesses:
             row = b.to_dict()

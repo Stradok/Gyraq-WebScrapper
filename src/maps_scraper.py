@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
 from . import config
 from .models import Business, Review
+from .seen_store import SeenStore, extract_place_id
 
 log = logging.getLogger(__name__)
 
@@ -50,8 +51,9 @@ def _safe_attr(page: Page, selector: str, attr: str) -> str | None:
 
 
 class MapsScraper:
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True, seen_store: SeenStore | None = None):
         self.headless = headless
+        self.seen_store = seen_store
         self._playwright = None
         self.browser = None
         self.context = None
@@ -114,11 +116,16 @@ class MapsScraper:
 
         if page.locator('div[role="feed"]').count() == 0:
             # Query resolved directly to a single business detail page.
+            if self.seen_store is not None and self.seen_store.has(extract_place_id(page.url)):
+                log.info("Skipping already-seen business for %r", query)
+                return []
             biz = self._extract_current_business()
+            if biz:
+                self._mark_seen(biz)
             return [biz] if biz else []
 
         listings = self._collect_listing_links(max_results)
-        log.info("Collected %d listing links for %r", len(listings), query)
+        log.info("Collected %d new listing link(s) for %r", len(listings), query)
 
         businesses: list[Business] = []
         for i, (name_hint, href) in enumerate(listings[:max_results]):
@@ -129,6 +136,7 @@ class MapsScraper:
                 _jitter(1.0, 2.5)
                 biz = self._extract_current_business()
                 if biz:
+                    self._mark_seen(biz)
                     businesses.append(biz)
             except Exception:
                 log.warning("Failed to extract listing %r", name_hint or href, exc_info=True)
@@ -136,13 +144,23 @@ class MapsScraper:
 
         return businesses
 
+    def _mark_seen(self, biz: Business) -> None:
+        biz.place_id = extract_place_id(biz.google_maps_url)
+        if self.seen_store is not None:
+            self.seen_store.add(biz.place_id)
+
     def _collect_listing_links(self, max_results: int) -> list[tuple[str | None, str]]:
         page = self.page
         feed = page.locator('div[role="feed"]').first
         seen: dict[str, str | None] = {}
         stable_rounds = 0
 
-        while len(seen) < max_results and stable_rounds < 4:
+        def _new_count() -> int:
+            if self.seen_store is None:
+                return len(seen)
+            return sum(1 for href in seen if not self.seen_store.has(extract_place_id(href)))
+
+        while _new_count() < max_results and stable_rounds < 4:
             links = page.locator('div[role="feed"] a.hfpxzc')
             count = links.count()
             for i in range(count):
@@ -169,7 +187,13 @@ class MapsScraper:
             else:
                 stable_rounds = 0
 
-        return [(name, href) for href, name in seen.items()]
+        results = [(name, href) for href, name in seen.items()]
+        if self.seen_store is not None:
+            results = [
+                (name, href) for name, href in results
+                if not self.seen_store.has(extract_place_id(href))
+            ]
+        return results
 
     def _extract_current_business(self) -> Business | None:
         page = self.page

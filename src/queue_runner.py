@@ -9,6 +9,7 @@ from . import config
 from .exporter import write_results
 from .jobs import job_store
 from .maps_scraper import MapsScraper
+from .seen_store import SeenStore
 
 log = logging.getLogger(__name__)
 
@@ -43,11 +44,18 @@ def _next_pending(entries: list[dict]) -> dict | None:
 
 
 def run_forever() -> None:
-    scraper = MapsScraper(headless=config.HEADLESS)
+    seen_store = SeenStore(config.SEEN_STORE_FILE) if config.SKIP_ALREADY_SEEN else None
+    scraper = MapsScraper(headless=config.HEADLESS, seen_store=seen_store)
     scraper.start()
     log.info(
         "Browser started. Watching %s and the HTTP API for work.", config.QUERIES_FILE
     )
+    if seen_store is not None:
+        log.info(
+            "Deduplication on: %d place(s) already seen (%s)",
+            seen_store.count(),
+            config.SEEN_STORE_FILE,
+        )
 
     try:
         while True:

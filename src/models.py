@@ -23,6 +23,7 @@ class Business:
     latitude: float | None = None
     longitude: float | None = None
     google_maps_url: str | None = None
+    place_id: str | None = None
     reviews: list[Review] = field(default_factory=list)
 
     def to_dict(self) -> dict:
