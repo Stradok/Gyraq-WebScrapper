@@ -1,5 +1,7 @@
-const { app, BrowserWindow, shell, Menu } = require('electron');
+const { app, BrowserWindow, shell, Menu, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const http = require('http');
 const { spawn } = require('child_process');
 
@@ -8,8 +10,34 @@ const APP_PORT = process.env.API_PORT || '8080';
 const APP_URL = `http://localhost:${APP_PORT}`;
 const HEALTH_URL = `${APP_URL}/health`;
 const ICON_PATH = path.join(REPO_ROOT, 'src', 'web', 'icons', 'icon-512.png');
+const PRELOAD_PATH = path.join(__dirname, 'preload.js');
+const TOKEN_FILE = path.join(REPO_ROOT, 'data', '.auth_token');
 
 let mainWindow = null;
+
+function readAuthToken() {
+  try {
+    return fs.readFileSync(TOKEN_FILE, 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function getLanIp() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      const isV4 = typeof net.family === 'string' ? net.family === 'IPv4' : net.family === 4;
+      if (isV4 && !net.internal) return net.address;
+    }
+  }
+  return null;
+}
+
+ipcMain.handle('get-lan-url', () => {
+  const ip = getLanIp();
+  return ip ? `http://${ip}:${APP_PORT}` : null;
+});
 
 function checkHealth() {
   return new Promise((resolve) => {
@@ -112,8 +140,28 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      preload: PRELOAD_PATH,
     },
   });
+
+  // The backend requires a token on every API call (see src/auth.py) -
+  // since this app runs on the same machine as the backend, read it
+  // straight off disk and attach it to every request automatically so
+  // there's zero manual setup for this, the primary way of using the app.
+  const token = readAuthToken();
+  if (token) {
+    mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+      { urls: [`${APP_URL}/*`] },
+      (details, callback) => {
+        details.requestHeaders['X-App-Token'] = token;
+        callback({ requestHeaders: details.requestHeaders });
+      }
+    );
+  } else {
+    console.warn('[gyraq] No auth token found yet at', TOKEN_FILE);
+  }
+
   mainWindow.loadURL(APP_URL);
   mainWindow.on('closed', () => {
     mainWindow = null;

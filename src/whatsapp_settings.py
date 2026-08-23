@@ -9,6 +9,7 @@ DEFAULTS = {
     "phone_number_id": "",
     "waba_id": "",
     "verify_token": "",
+    "app_secret": "",
 }
 
 
@@ -40,4 +41,5 @@ def save_whatsapp_settings(values: dict) -> dict:
 def masked_whatsapp_settings() -> dict:
     s = dict(get_whatsapp_settings())
     s["access_token"] = "set" if s.get("access_token") else ""
+    s["app_secret"] = "set" if s.get("app_secret") else ""
     return s

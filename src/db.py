@@ -19,6 +19,10 @@ def connect():
     if not _initialized:
         _init_schema(conn)
         _initialized = True
+        try:
+            os.chmod(config.DB_FILE, 0o600)  # owner-only: holds mail/WhatsApp credentials
+        except Exception:
+            pass
     try:
         yield conn
         conn.commit()

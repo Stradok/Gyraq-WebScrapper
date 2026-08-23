@@ -185,17 +185,26 @@ a phone since it's just an image over HTTP.
 
 To check it from your phone on the same WiFi:
 
+**Easiest**: on the laptop, sign in to the web UI and open the
+**Remote access** panel (in the "Jump to…" nav dropdown, top right) — scan
+the QR code with your phone's camera and it opens the app already signed
+in, no typing.
+
+**Manually**, if you'd rather not scan:
+
 1. Find the laptop's local network IP:
    - **Windows**: `ipconfig` → look for "IPv4 Address" (something like `192.168.1.42`)
    - **Linux**: `hostname -I` or `ip addr`
    - **macOS**: `ipconfig getifaddr en0` (or System Settings → Wi-Fi → Details)
 2. On your phone's browser, go to `http://<that-ip>:8080` — e.g. `http://192.168.1.42:8080`.
+3. Paste in the access token when prompted (see [Security](#security) for
+   where to find it).
 
-This works because the port is published on all network interfaces, not
-just `localhost` — which also means **anything else on the same WiFi can
-reach it too**, with no login. Fine for a home/office network; if that's a
-concern, put it behind your router's firewall rules or a VPN rather than
-exposing it further.
+The port is published on all network interfaces, not just `localhost` —
+which means anything else on the same WiFi can *reach* it, but the access
+token (see [Security](#security)) stops them from actually doing anything
+without it. For extra peace of mind on a shared network, put it behind
+your router's firewall rules or a VPN instead of exposing it further.
 
 ### Installing it as an app
 
@@ -219,8 +228,10 @@ The steps above only work while your phone is on the same network as the
 laptop. To check on it from actual cellular data / a different WiFi
 (coffee shop, out and about), you need the laptop reachable over the
 internet — and the responsible way to do that is **not** router port
-forwarding, since this app has no login and would then be a lead database
-sitting open on the public internet.
+forwarding. The access token (see [Security](#security)) helps, but plain
+HTTP port-forwarded to the open internet is still a bad idea — no
+encryption in transit, and the token can end up in browser history, proxy
+logs, etc. along the way.
 
 Use [Tailscale](https://tailscale.com) instead (free for personal use):
 
@@ -242,6 +253,43 @@ anything extra and just want a quick one-off peek, a tunneling tool like
 and — unlike Tailscale — that URL is reachable by anyone who has it, not
 just your own devices.
 
+## Security
+
+The API and web UI are reachable from anywhere on your local network (see
+above) with no login by default — that would mean anyone on the same WiFi
+could read your scraped leads, reconfigure your mail/WhatsApp credentials,
+or trigger sends. To close that off, **every route except `/health` and the
+page shell itself requires a token**, checked via an `X-App-Token` header.
+
+- The token is generated once, automatically, on first run — no setup step.
+- Find it three ways: the **Remote access** panel in the web UI once you're
+  signed in on one device, the container's startup logs (`docker compose
+  logs`), or the file `data/.auth_token` directly.
+- The **desktop app** (Electron) reads the token straight off disk and
+  attaches it to every request automatically — zero manual steps for that,
+  the primary way of using this.
+- A plain browser (including at `localhost:8080`) needs the token pasted in
+  once; it's then remembered for that browser via local storage.
+- **Anything that calls the API programmatically — n8n, curl, a script —
+  needs to send the token too**, or every call gets a `401`. See below.
+
+Other hardening worth knowing about:
+- `data/app.db` (holds mail/WhatsApp credentials) is created with
+  owner-only file permissions (`600`).
+- The WhatsApp webhook verifies Meta's `X-Hub-Signature-256` HMAC when an
+  **App secret** is configured (Connections → WhatsApp) — without it,
+  anyone who discovers your tunnel URL could inject fake "incoming
+  messages"; with it, forged payloads are rejected with `403`.
+- The Electron window runs with `contextIsolation`, no `nodeIntegration`,
+  and Chromium's OS-level sandbox enabled — a compromised page it loads
+  (or one it opens externally via a link) can't reach your filesystem or
+  Node APIs.
+- Credentials (mail/WhatsApp) are stored locally in plain text — there's no
+  clean way to encrypt secrets at rest for a single-user local app without
+  either an OS keychain integration (not built) or a master password you'd
+  have to re-enter constantly (fights the "smooth" goal). File permissions
+  plus the access token are the practical boundary here, not encryption.
+
 ## Using it from n8n
 
 The container also runs a small HTTP API on port `8080`, reachable from
@@ -249,11 +297,16 @@ anywhere on your local network (see [Web UI & monitoring from your
 phone](#web-ui--monitoring-from-your-phone) above) — see the note below if
 n8n itself runs in Docker.
 
+**Every request below needs the access token** (see
+[Security](#security)) as an `X-App-Token` header — grab it from
+`data/.auth_token` or the container logs.
+
 **1. Start a scrape** — `POST` a query, get back a job id immediately:
 
 ```bash
 curl -X POST http://localhost:8080/scrape \
   -H "Content-Type: application/json" \
+  -H "X-App-Token: <your token>" \
   -d '{"query": "gyms in Chicago, IL", "max_results": 20}'
 ```
 ```json
@@ -265,7 +318,7 @@ few minutes depending on `max_results`, so poll until `status` is `done` (or
 `error`):
 
 ```bash
-curl http://localhost:8080/jobs/fec0c255a123
+curl -H "X-App-Token: <your token>" http://localhost:8080/jobs/fec0c255a123
 ```
 ```json
 {
@@ -278,7 +331,8 @@ curl http://localhost:8080/jobs/fec0c255a123
 }
 ```
 
-**In n8n**, this is two HTTP Request nodes:
+**In n8n**, this is two HTTP Request nodes — on **both**, add a header
+`X-App-Token: <your token>` (in the node's Headers section):
 
 - **HTTP Request** (POST) → `http://localhost:8080/scrape`, JSON body
   `{"query": "...", "max_results": ...}` → returns `job_id`.
@@ -286,6 +340,10 @@ curl http://localhost:8080/jobs/fec0c255a123
   wired into a **Wait** node + loop (or the "retry on fail" option) until
   `status` isn't `queued`/`running` — then the `results` array is ready to
   feed into the rest of the workflow.
+
+If you built this workflow before the access token existed, add that
+header to each HTTP Request node now — they'll otherwise start getting
+`401 unauthorized` after updating.
 
 Other endpoints: `GET /jobs` lists every job with its status, `GET /health`
 is a plain liveness check. `POST /drafts` (body: `to`, `subject`, `body`,
@@ -326,13 +384,21 @@ business, so turn it off (`SCRAPE_EMAILS=false`) if you don't need it.
 When `GENERATE_PITCHES=true` (on by default in `docker-compose.yml`) and a
 business has an email, the scraper calls a locally-running
 [Ollama](https://ollama.com) model right after scraping it — no cloud LLM,
-no API key. It reads the business's category, rating, and actual review
-text, decides which of two pitches fits better, and writes a short,
-specific email referencing something real about that business (not a mass
-template). Every draft is saved to the local database — nothing is sent
-automatically; review and send it from the web UI's **Drafted emails**
-panel (checkboxes + **Send selected** / **Send all pending**), which uses
-whatever you've configured under **Connections → Email** below.
+no API key. It reads the business's category, rating, review text, and
+review count, then picks **one** of four angles based on what it actually
+has evidence for:
+
+- **Website** — no website, or a very basic one
+- **Voice agent** — reviews/research mention missed calls, slow replies, long waits
+- **Automation** — mentions of manual scheduling problems, missed follow-ups, no online booking
+- **Lead generation** — low review count / limited visibility, would benefit from more customer volume
+
+It writes a short, specific email referencing something real about that
+business (not a mass template). Every draft is saved to the local
+database — nothing is sent automatically; review and send it from the web
+UI's **Drafted emails** panel (checkboxes + **Send selected** / **Send all
+pending**), which uses whatever you've configured under **Connections →
+Email** below.
 
 Requirements: Ollama running on the same machine (`ollama serve`, with a
 model pulled — `OLLAMA_MODEL` defaults to `gemma3:12b`). The scraper reaches
@@ -429,6 +495,11 @@ Meta's side:
    port, then in Meta's app dashboard → WhatsApp → **Configuration** →
    Webhook, enter `https://<your-tunnel-url>/webhooks/whatsapp`, the same
    verify token from step 4, and subscribe to the `messages` field.
+6. **Also set the App secret** (Connections → WhatsApp, found on your
+   app's dashboard under Settings → Basic) once you're tunneling publicly
+   — without it, anyone who finds your tunnel URL could POST fake
+   "incoming messages"; with it, every webhook call is verified against
+   Meta's signature and forged ones are rejected.
 
 One WhatsApp platform rule, not a limitation of this code: you can only
 send free-form text as a **reply** within 24 hours of the customer's last
@@ -487,12 +558,15 @@ from the web UI's Connections panel (see above), they're saved to `DB_FILE`.
 ```
 Dockerfile / docker-compose.yml   container + Chromium setup
 pyproject.toml / setup.sh / setup.ps1 / run.sh / run.ps1   native (no-Docker) setup, via uv
-electron/                         desktop app window shell (npm run app)
+electron/main.js, preload.js      desktop app shell: backend auto-start, LAN IP, auto-injects the access token
 data/queries.yaml                 the job queue (mounted volume)
 data/results/                     CSV/JSON output (mounted volume)
-data/app.db                       SQLite: job history, drafts, mail/WhatsApp settings
+data/app.db                       SQLite: job history, drafts, mail/WhatsApp settings (owner-only permissions)
+data/.auth_token                  the access token, plain file, owner-only permissions
 src/main.py                       entrypoint: starts the API + worker thread
-src/api.py                        HTTP API (FastAPI): all routes below, serves the web UI
+src/api.py                        HTTP API (FastAPI): all routes below + the auth middleware, serves the web UI
+src/auth.py                       generates/verifies the access token
+src/qr.py                         generates the QR PNG for the Remote Access panel
 src/web/index.html                the web UI (single static page, no build step)
 src/web/manifest.json, sw.js, icons/   makes the web UI installable as an app (PWA)
 src/db.py                         SQLite connection + schema (self-initializing)

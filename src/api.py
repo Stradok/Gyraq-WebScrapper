@@ -1,17 +1,22 @@
+import json
+import logging
 import os
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import config
+from .auth import verify_token
 from .drafts_store import get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft
 from .jobs import Job, job_store
 from .live_view import get_frame
 from .mail_settings import masked_mail_settings, save_mail_settings
 from .mailer import MailNotConfigured, send_email, test_imap, test_smtp
+from .qr import make_qr_png
 from .results_store import list_result_files, read_result_file
 from .stats import get_stats
 from .whatsapp import (
@@ -20,6 +25,7 @@ from .whatsapp import (
     parse_webhook_payload,
     record_incoming,
     test_connection as test_whatsapp_connection,
+    verify_webhook_signature,
 )
 from .whatsapp_settings import (
     get_whatsapp_settings,
@@ -27,9 +33,38 @@ from .whatsapp_settings import (
     save_whatsapp_settings,
 )
 
+log = logging.getLogger(__name__)
+
 app = FastAPI(title="Maps Scraper API")
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
+
+# Every route below except /health, the WhatsApp webhook (which has its own
+# verify-token / signature protection instead), and the static web UI shell
+# requires this app's own token - see src/auth.py. The web UI shell has to
+# stay open so the page can load and prompt for the token in the first place.
+AUTH_PREFIXES = (
+    "/scrape",
+    "/jobs",
+    "/drafts",
+    "/live",
+    "/settings",
+    "/results",
+    "/stats",
+    "/whatsapp/inbox",
+    "/qr",
+)
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith(AUTH_PREFIXES):
+            if not verify_token(request.headers.get("x-app-token")):
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
 
 
 class ScrapeRequest(BaseModel):
@@ -70,6 +105,7 @@ class WhatsAppSettingsRequest(BaseModel):
     phone_number_id: str | None = None
     waba_id: str | None = None
     verify_token: str | None = None
+    app_secret: str | None = None
 
 
 def _summary(job: Job) -> dict:
@@ -259,10 +295,27 @@ def verify_whatsapp_webhook(request: Request) -> PlainTextResponse:
 
 @app.post("/webhooks/whatsapp")
 async def receive_whatsapp_webhook(request: Request) -> dict:
-    payload = await request.json()
+    raw = await request.body()
+    app_secret = get_whatsapp_settings().get("app_secret")
+    if app_secret:
+        signature = request.headers.get("x-hub-signature-256")
+        if not verify_webhook_signature(raw, signature, app_secret):
+            raise HTTPException(status_code=403, detail="invalid signature")
+    else:
+        log.warning("WhatsApp webhook received with no app_secret configured - signature not verified")
+
+    payload = json.loads(raw)
     for msg in parse_webhook_payload(payload):
         record_incoming(msg["from"], msg["text"], payload)
     return {"status": "received"}
+
+
+@app.get("/qr")
+def qr_code(request: Request) -> Response:
+    url = request.query_params.get("url", "")
+    if not url:
+        raise HTTPException(status_code=400, detail="missing url param")
+    return Response(content=make_qr_png(url), media_type="image/png")
 
 
 # Mounted last so it never shadows the API routes above.

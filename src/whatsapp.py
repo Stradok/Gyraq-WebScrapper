@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import urllib.error
 import urllib.request
@@ -7,6 +9,17 @@ from .whatsapp_settings import get_whatsapp_settings
 
 GRAPH_API_VERSION = "v21.0"
 GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+
+
+def verify_webhook_signature(raw_body: bytes, signature_header: str | None, app_secret: str) -> bool:
+    """Meta signs webhook payloads with X-Hub-Signature-256: sha256=<hex>,
+    HMAC'd with the app's App Secret. Verifying this stops anyone who
+    discovers the tunnel URL from injecting fake incoming messages."""
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+    expected = hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    provided = signature_header.split("=", 1)[1]
+    return hmac.compare_digest(expected, provided)
 
 
 class WhatsAppNotConfigured(Exception):

@@ -10,6 +10,7 @@ data/seen_places.txt
 data/app.db
 data/app.db-wal
 data/app.db-shm
+data/.auth_token
 
 # electron desktop shell
 electron/node_modules/

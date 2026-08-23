@@ -143,6 +143,17 @@
     padding: 8px 12px;
     white-space: nowrap;
   }
+  .header-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+  .nav-select {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
   .live-frame {
     border-radius: 8px;
     overflow: hidden;
@@ -240,20 +251,128 @@
     font-size: 13px;
   }
   .file-list-item:last-child { border-bottom: none; }
+
+  /* ---- smoothness / polish ---- */
+  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #33394a; }
+
+  button, .file-list-item, input, details summary {
+    transition: background-color .15s ease, border-color .15s ease,
+      color .15s ease, opacity .15s ease, transform .08s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { transform: none; }
+  input:focus-visible, button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79,140,255,0.35);
+    border-color: var(--accent);
+  }
+  section {
+    animation: fade-in .35s ease both;
+  }
+  .item, .stat-tile, .file-list-item {
+    animation: fade-in .25s ease both;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---- auth gate ---- */
+  .auth-gate {
+    position: fixed;
+    inset: 0;
+    background: rgba(10,11,14,0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fade-in .2s ease both;
+  }
+  .auth-gate[hidden] { display: none; }
+  .auth-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    width: 320px;
+    max-width: calc(100vw - 40px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    animation: pop-in .25s cubic-bezier(.2,.8,.3,1.2) both;
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.94) translateY(6px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .auth-card h2 { margin: 0 0 6px; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--text); }
+  .auth-card p { margin: 0 0 16px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .auth-card input { width: 100%; margin-bottom: 10px; }
+  .auth-card button { width: 100%; }
+  .qr-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 12px;
+    display: inline-block;
+    line-height: 0;
+  }
+  .qr-box img { width: 160px; height: 160px; display: block; }
+  .token-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+  }
+  .token-row code {
+    flex: 1;
+    background: #0d0f13;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 11px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
+<div class="auth-gate" id="authGate" hidden>
+  <div class="auth-card">
+    <h2>Sign in</h2>
+    <p>This device needs the access token to talk to the app. Find it on the computer running Gyraq — the "Remote access" panel once signed in there, the startup logs, or <code>data/.auth_token</code>.</p>
+    <input type="password" id="authInput" placeholder="Paste token" autocomplete="off">
+    <button id="authSubmitBtn">Continue</button>
+    <p class="status-line bad" id="authError"></p>
+  </div>
+</div>
 <header>
   <div class="header-row">
     <div>
       <h1>Gyraq Lead Scraper</h1>
       <p>Local business search, deduplicated leads, AI-drafted outreach — all running on this machine.</p>
     </div>
-    <button id="installBtn" class="install-btn" hidden>Install app</button>
+    <div class="header-actions">
+      <select id="navSelect" class="nav-select">
+        <option value="">Jump to…</option>
+        <option value="sec-overview">Overview</option>
+        <option value="sec-search">New search</option>
+        <option value="sec-live">Live view</option>
+        <option value="sec-connections">Connections</option>
+        <option value="sec-remote">Remote access</option>
+        <option value="sec-jobs">Jobs</option>
+        <option value="sec-drafts">Drafted emails</option>
+        <option value="sec-data">Scraped data</option>
+      </select>
+      <button id="installBtn" class="install-btn" hidden>Install app</button>
+    </div>
   </div>
 </header>
 <main>
-  <section>
+  <section id="sec-overview">
     <h2>Overview</h2>
     <div class="stats-row" id="statsRow">
       <div class="stat-tile"><div class="n" id="stJobs">–</div><div class="l">Searches</div></div>
@@ -264,7 +383,7 @@
     </div>
   </section>
 
-  <section>
+  <section id="sec-search">
     <h2>New search</h2>
     <div class="row">
       <input type="text" id="query" placeholder="e.g. dental clinics in Islamabad">
@@ -273,14 +392,14 @@
     </div>
   </section>
 
-  <section id="liveSection" hidden>
+  <section id="sec-live" hidden>
     <h2>Live view</h2>
     <div class="live-frame">
       <img id="liveImg" alt="Live browser view">
     </div>
   </section>
 
-  <section>
+  <section id="sec-connections">
     <h2>Connections</h2>
     <div class="tabs">
       <button class="tab-btn active" data-tab="mailTab">Email</button>
@@ -326,6 +445,7 @@
         <div><label>Phone number ID</label><input type="text" id="wPhoneId"></div>
         <div><label>WhatsApp Business Account ID</label><input type="text" id="wWabaId"></div>
         <div class="field-full"><label>Webhook verify token (you choose this)</label><input type="text" id="wVerifyToken"></div>
+        <div class="field-full"><label>App secret <span style="font-weight:400;color:var(--muted)">(recommended — verifies incoming webhooks are really from Meta)</span></label><input type="password" id="wAppSecret" placeholder="unchanged if left blank"></div>
       </div>
       <div class="btn-row">
         <button id="wSaveBtn">Save</button>
@@ -336,12 +456,18 @@
     </div>
   </section>
 
-  <section>
+  <section id="sec-remote">
+    <h2>Remote access</h2>
+    <p class="meta" style="margin-bottom:10px">Scan this from your phone on the same WiFi to open the app already signed in.</p>
+    <div id="remoteAccessBody" class="empty">Loading…</div>
+  </section>
+
+  <section id="sec-jobs">
     <h2>Jobs</h2>
     <div id="jobs" class="empty">Loading…</div>
   </section>
 
-  <section>
+  <section id="sec-drafts">
     <h2>Drafted emails</h2>
     <div class="draft-actions">
       <button id="sendSelectedBtn">Send selected</button>
@@ -351,7 +477,7 @@
     <div id="drafts" class="empty">Loading…</div>
   </section>
 
-  <section>
+  <section id="sec-data">
     <h2>Scraped data</h2>
     <div id="resultFiles" class="empty">Loading…</div>
     <div id="resultViewer" class="table-wrap" style="margin-top:10px"></div>
@@ -363,10 +489,80 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
+// ---- auth ----
+const TOKEN_STORAGE_KEY = 'gyraq_token';
+
+function getToken() {
+  return localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+}
+
+function setToken(t) {
+  if (t) localStorage.setItem(TOKEN_STORAGE_KEY, t);
+  else localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+function showAuthGate(message) {
+  $('authGate').hidden = false;
+  $('authError').textContent = message || '';
+  $('authInput').focus();
+}
+
+function hideAuthGate() {
+  $('authGate').hidden = true;
+}
+
+async function apiFetch(url, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {}, { 'X-App-Token': getToken() });
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    showAuthGate();
+    throw new Error('unauthorized');
+  }
+  return res;
+}
+
+async function submitAuthToken() {
+  const candidate = $('authInput').value.trim();
+  if (!candidate) return;
+  setToken(candidate);
+  $('authSubmitBtn').disabled = true;
+  try {
+    const res = await fetch('/stats', { headers: { 'X-App-Token': candidate } });
+    if (res.status === 401) {
+      setToken('');
+      $('authError').textContent = "That token didn't work — check for typos.";
+      return;
+    }
+    hideAuthGate();
+    $('authInput').value = '';
+    refreshAll();
+  } catch (e) {
+    $('authError').textContent = 'Could not reach the server.';
+  } finally {
+    $('authSubmitBtn').disabled = false;
+  }
+}
+
+$('authSubmitBtn').addEventListener('click', submitAuthToken);
+$('authInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuthToken(); });
+
+// A token in the URL (from a scanned QR code) signs this device in
+// automatically, then gets scrubbed from the address bar/history.
+(function bootstrapTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get('token');
+  if (urlToken) {
+    setToken(urlToken);
+    params.delete('token');
+    const rest = params.toString();
+    history.replaceState({}, '', window.location.pathname + (rest ? '?' + rest : ''));
+  }
+})();
+
 let lastLiveUrl = null;
 async function refreshLive() {
   try {
-    const res = await fetch('/live?t=' + Date.now(), { cache: 'no-store' });
+    const res = await apiFetch('/live?t=' + Date.now(), { cache: 'no-store' });
     if (res.status === 204) {
       $('liveSection').hidden = true;
       return;
@@ -386,7 +582,7 @@ async function scrape() {
   if (!query) return;
   $('scrapeBtn').disabled = true;
   try {
-    await fetch('/scrape', {
+    await apiFetch('/scrape', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, max_results: maxResults })
@@ -413,7 +609,7 @@ function escapeHtml(s) {
 }
 
 async function refreshJobs() {
-  const res = await fetch('/jobs');
+  const res = await apiFetch('/jobs');
   const jobs = await res.json();
   const el = $('jobs');
   if (!jobs.length) {
@@ -436,7 +632,7 @@ async function refreshJobs() {
 }
 
 async function refreshDrafts() {
-  const res = await fetch('/drafts');
+  const res = await apiFetch('/drafts');
   const drafts = await res.json();
   const el = $('drafts');
   if (!drafts.length) {
@@ -472,7 +668,7 @@ async function sendDrafts(body) {
   $('sendStatus').textContent = 'Sending…';
   $('sendStatus').className = 'status-line';
   try {
-    const res = await fetch('/drafts/send', {
+    const res = await apiFetch('/drafts/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -499,7 +695,7 @@ $('sendSelectedBtn').addEventListener('click', () => {
 $('sendAllBtn').addEventListener('click', () => sendDrafts({ all: true }));
 
 async function refreshStats() {
-  const res = await fetch('/stats');
+  const res = await apiFetch('/stats');
   const s = await res.json();
   $('stJobs').textContent = s.jobs_completed;
   $('stBiz').textContent = s.businesses_scraped;
@@ -509,7 +705,7 @@ async function refreshStats() {
 }
 
 async function refreshResultFiles() {
-  const res = await fetch('/results');
+  const res = await apiFetch('/results');
   const files = await res.json();
   const el = $('resultFiles');
   if (!files.length) {
@@ -530,7 +726,7 @@ async function refreshResultFiles() {
 }
 
 async function viewResultFile(file) {
-  const res = await fetch('/results/' + encodeURIComponent(file));
+  const res = await apiFetch('/results/' + encodeURIComponent(file));
   const data = await res.json();
   const rows = data.results || [];
   const cols = ['name', 'category', 'rating', 'review_count', 'address', 'phone', 'email', 'website'];
@@ -574,7 +770,7 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
 });
 
 async function loadMailSettings() {
-  const res = await fetch('/settings/mail');
+  const res = await apiFetch('/settings/mail');
   const s = await res.json();
   $('mFromName').value = s.from_name || '';
   $('mFromEmail').value = s.from_email || '';
@@ -601,7 +797,7 @@ async function saveMailSettings() {
   };
   if ($('mSmtpPass').value) body.smtp_password = $('mSmtpPass').value;
   if ($('mImapPass').value) body.imap_password = $('mImapPass').value;
-  await fetch('/settings/mail', {
+  await apiFetch('/settings/mail', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   });
   $('mSmtpPass').value = ''; $('mImapPass').value = '';
@@ -616,7 +812,7 @@ async function testMail(kind) {
   $('mStatus').textContent = 'Testing…';
   $('mStatus').className = 'status-line';
   try {
-    const res = await fetch(`/settings/mail/test-${kind}`, { method: 'POST' });
+    const res = await apiFetch(`/settings/mail/test-${kind}`, { method: 'POST' });
     const data = await res.json();
     $('mStatus').textContent = data.ok ? `${kind.toUpperCase()} OK.` : `${kind.toUpperCase()} failed: ${data.error}`;
     $('mStatus').className = 'status-line ' + (data.ok ? 'ok' : 'bad');
@@ -630,12 +826,13 @@ $('mTestSmtpBtn').addEventListener('click', () => testMail('smtp'));
 $('mTestImapBtn').addEventListener('click', () => testMail('imap'));
 
 async function loadWhatsAppSettings() {
-  const res = await fetch('/settings/whatsapp');
+  const res = await apiFetch('/settings/whatsapp');
   const s = await res.json();
   $('wPhoneId').value = s.phone_number_id || '';
   $('wWabaId').value = s.waba_id || '';
   $('wVerifyToken').value = s.verify_token || '';
   $('wToken').placeholder = s.access_token ? '•••••••• (unchanged if left blank)' : 'access token';
+  $('wAppSecret').placeholder = s.app_secret ? '•••••••• (unchanged if left blank)' : 'app secret';
   $('wWebhookUrl').textContent = 'Webhook callback URL for Meta: ' + window.location.origin + '/webhooks/whatsapp';
 }
 
@@ -646,10 +843,12 @@ async function saveWhatsAppSettings() {
     verify_token: $('wVerifyToken').value,
   };
   if ($('wToken').value) body.access_token = $('wToken').value;
-  await fetch('/settings/whatsapp', {
+  if ($('wAppSecret').value) body.app_secret = $('wAppSecret').value;
+  await apiFetch('/settings/whatsapp', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   });
   $('wToken').value = '';
+  $('wAppSecret').value = '';
   $('wStatus').textContent = 'Saved.';
   $('wStatus').className = 'status-line ok';
   await loadWhatsAppSettings();
@@ -660,7 +859,7 @@ async function testWhatsApp() {
   $('wStatus').textContent = 'Testing…';
   $('wStatus').className = 'status-line';
   try {
-    const res = await fetch('/settings/whatsapp/test', { method: 'POST' });
+    const res = await apiFetch('/settings/whatsapp/test', { method: 'POST' });
     const data = await res.json();
     $('wStatus').textContent = data.ok ? 'Connected.' : 'Failed: ' + data.error;
     $('wStatus').className = 'status-line ' + (data.ok ? 'ok' : 'bad');
@@ -675,13 +874,51 @@ $('wTestBtn').addEventListener('click', testWhatsApp);
 $('scrapeBtn').addEventListener('click', scrape);
 $('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') scrape(); });
 
-refreshJobs();
-refreshDrafts();
-refreshLive();
-refreshStats();
-refreshResultFiles();
-loadMailSettings();
-loadWhatsAppSettings();
+async function setupRemoteAccess() {
+  const el = $('remoteAccessBody');
+  let lanUrl = null;
+  const host = window.location.hostname;
+  if (host !== 'localhost' && host !== '127.0.0.1') {
+    lanUrl = window.location.origin;
+  } else if (window.gyraq) {
+    try { lanUrl = await window.gyraq.getLanUrl(); } catch (e) { lanUrl = null; }
+  }
+
+  if (!lanUrl) {
+    el.className = 'empty';
+    el.innerHTML = 'Open this page from your phone\'s browser using this computer\'s LAN IP (Windows: <code>ipconfig</code>, Linux: <code>hostname -I</code>, macOS: <code>ipconfig getifaddr en0</code>) to set it up.';
+    return;
+  }
+
+  const fullUrl = `${lanUrl}/?token=${encodeURIComponent(getToken())}`;
+  el.className = '';
+  el.innerHTML = `
+    <div class="qr-box"><img id="qrImg" alt="QR code"></div>
+    <div class="token-row"><code>${escapeHtml(fullUrl)}</code></div>
+  `;
+  try {
+    const res = await apiFetch('/qr?url=' + encodeURIComponent(fullUrl));
+    const blob = await res.blob();
+    $('qrImg').src = URL.createObjectURL(blob);
+  } catch (e) { /* auth gate already shown by apiFetch if needed */ }
+}
+
+function refreshAll() {
+  refreshJobs();
+  refreshDrafts();
+  refreshLive();
+  refreshStats();
+  refreshResultFiles();
+  loadMailSettings();
+  loadWhatsAppSettings();
+  setupRemoteAccess();
+}
+
+if (getToken()) {
+  refreshAll();
+} else {
+  showAuthGate();
+}
 setInterval(refreshStats, 5000);
 setInterval(refreshJobs, 4000);
 setInterval(refreshDrafts, 4000);
@@ -705,6 +942,14 @@ $('installBtn').addEventListener('click', async () => {
   $('installBtn').hidden = true;
 });
 window.addEventListener('appinstalled', () => { $('installBtn').hidden = true; });
+
+$('navSelect').addEventListener('change', () => {
+  const id = $('navSelect').value;
+  if (!id) return;
+  const el = $(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('navSelect').value = '';
+});
 </script>
 </body>
 </html>
