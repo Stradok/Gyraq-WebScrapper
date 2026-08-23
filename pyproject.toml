@@ -5,6 +5,7 @@ description = "Google Maps local business scraper with lead enrichment and AI-dr
 requires-python = ">=3.11"
 dependencies = [
     "playwright==1.62.0",
+    "playwright-stealth==2.0.3",
     "PyYAML==6.0.2",
     "fastapi==0.141.1",
     "uvicorn==0.52.3",

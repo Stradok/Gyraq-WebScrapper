@@ -18,8 +18,11 @@ up behind each other.
 
 > **Note:** this scrapes Google Maps' web UI directly, which is against
 > Google's Terms of Service. Use responsibly — the container adds randomized
-> delays between actions to behave less like a bot, but that doesn't
-> eliminate the risk of Google blocking the IP it runs from.
+> delays between actions and applies [playwright-stealth](https://github.com/AtuboDad/playwright_stealth)
+> (patches common automation fingerprints like `navigator.webdriver`) to
+> every page it opens, including the extra pages used for the email lookup
+> below, but neither eliminates the risk of a site or Google blocking the
+> IP it runs from.
 
 Two setup paths, pick one:
 
@@ -151,6 +154,22 @@ just `localhost` — which also means **anything else on the same WiFi can
 reach it too**, with no login. Fine for a home/office network; if that's a
 concern, put it behind your router's firewall rules or a VPN rather than
 exposing it further.
+
+### Installing it as an app
+
+The page is a installable PWA (manifest + icons + service worker) — on the
+laptop itself (`http://localhost:8080`), Chrome/Edge will offer an
+**"Install app"** button right in the header, and it opens afterward in
+its own window with no browser chrome, like a native app.
+
+On your **phone**, from Chrome's `⋮` menu choose **"Add to Home screen"**
+— you'll get a home-screen icon that opens full-screen, no address bar.
+One honest caveat: the *automatic* install banner and full offline support
+require a secure context (HTTPS, or `localhost`), and a phone reaching the
+laptop over `http://192.168.x.x` on your LAN doesn't qualify — that's just
+how browsers treat plain HTTP off-device. The manual "Add to Home screen"
+route still gets you the same app-like icon and standalone window, it's
+just a menu tap instead of an automatic prompt.
 
 ## Using it from n8n
 
@@ -290,6 +309,7 @@ data/drafts.jsonl                 generated outreach emails, for review
 src/main.py                       entrypoint: starts the API + worker thread
 src/api.py                        HTTP API (FastAPI): POST /scrape, GET /jobs/{id}, /drafts; serves the web UI
 src/web/index.html                the web UI (single static page, no build step)
+src/web/manifest.json, sw.js, icons/   makes the web UI installable as an app (PWA)
 src/jobs.py                       in-memory job store shared by the API and worker
 src/queue_runner.py               worker loop: drains API jobs, then queries.yaml
 src/maps_scraper.py               Playwright scraping logic

@@ -5,6 +5,7 @@ import time
 from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
+from playwright_stealth import Stealth
 
 from . import config
 from .drafts_store import save_draft
@@ -63,7 +64,7 @@ class MapsScraper:
         self.page: Page | None = None
 
     def start(self) -> None:
-        self._playwright = sync_playwright().start()
+        self._playwright = Stealth().use_sync(sync_playwright()).start()
         self.browser = self._playwright.chromium.launch(
             headless=self.headless,
             args=["--disable-blink-features=AutomationControlled"],

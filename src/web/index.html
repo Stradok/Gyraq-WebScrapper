@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gyraq Lead Scraper</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gyraq Leads">
 <style>
   :root {
     --bg: #0f1115;
@@ -120,12 +128,32 @@
     margin: 8px 0 0;
   }
   .refresh-note { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
+  .header-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .install-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 12px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>Gyraq Lead Scraper</h1>
-  <p>Local business search, deduplicated leads, AI-drafted outreach — all running on this machine.</p>
+  <div class="header-row">
+    <div>
+      <h1>Gyraq Lead Scraper</h1>
+      <p>Local business search, deduplicated leads, AI-drafted outreach — all running on this machine.</p>
+    </div>
+    <button id="installBtn" class="install-btn" hidden>Install app</button>
+  </div>
 </header>
 <main>
   <section>
@@ -240,6 +268,25 @@ refreshJobs();
 refreshDrafts();
 setInterval(refreshJobs, 4000);
 setInterval(refreshDrafts, 4000);
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  $('installBtn').hidden = false;
+});
+$('installBtn').addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  $('installBtn').hidden = true;
+});
+window.addEventListener('appinstalled', () => { $('installBtn').hidden = true; });
 </script>
 </body>
 </html>
