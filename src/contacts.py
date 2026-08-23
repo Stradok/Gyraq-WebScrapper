@@ -25,7 +25,20 @@ def _row_to_dict(row) -> dict:
         "notes": row["notes"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        # Default on for contacts created before this column existed.
+        "bot_enabled": bool(row["bot_enabled"]) if row["bot_enabled"] is not None else True,
     }
+
+
+def set_bot_enabled(phone_number: str, enabled: bool) -> dict | None:
+    """Per-chat kill switch - turn the bot off for one conversation when a
+    human takes it over, so it can't talk over a real sales conversation."""
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE contacts SET bot_enabled = ?, updated_at = ? WHERE phone_number = ?",
+            (1 if enabled else 0, _now(), phone_number),
+        )
+    return get_contact(phone_number)
 
 
 def get_contact(phone_number: str) -> dict | None:

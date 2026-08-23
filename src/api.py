@@ -12,7 +12,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import config, job_control
 from .auth import get_or_create_token, verify_token
 from .company_profile import get_company_profile, save_company_profile
-from .contacts import get_contact, list_contacts
+from .bot_switch import is_bot_enabled, set_bot_enabled as set_global_bot_enabled
+from .contacts import get_contact, link_contact, list_contacts, set_bot_enabled
 from .drafts_store import delete_draft, get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft, update_draft
 from .jobs import Job, job_store
@@ -521,6 +522,27 @@ def contact_detail_route(phone_number: str) -> dict:
     return {**contact, "thread": get_thread(phone_number, limit=50)}
 
 
+class BotToggleRequest(BaseModel):
+    enabled: bool
+
+
+@app.post("/contacts/{phone_number}/bot")
+def contact_bot_toggle_route(phone_number: str, req: BotToggleRequest) -> dict:
+    if get_contact(phone_number) is None:
+        raise HTTPException(status_code=404, detail="contact not found")
+    return set_bot_enabled(phone_number, req.enabled)
+
+
+@app.get("/settings/chatbot/enabled")
+def get_chatbot_enabled_route() -> dict:
+    return {"enabled": is_bot_enabled()}
+
+
+@app.post("/settings/chatbot/enabled")
+def set_chatbot_enabled_route(req: BotToggleRequest) -> dict:
+    return {"enabled": set_global_bot_enabled(req.enabled)}
+
+
 @app.get("/webhooks/whatsapp")
 def verify_whatsapp_webhook(request: Request) -> PlainTextResponse:
     mode = request.query_params.get("hub.mode")
@@ -555,7 +577,23 @@ def _auto_reply(from_number: str, text: str) -> None:
     WhatsApp API (unlike cold-starting a conversation, see whatsapp.
     send_text) - no template required. Never lets a reply/send failure
     break webhook processing; the reply (or failure) is always recorded
-    so it shows up in the contact's thread either way."""
+    so it shows up in the contact's thread either way.
+
+    Both kill switches are checked here rather than deeper in, so an
+    incoming message is still recorded and still updates the contact's
+    CRM record even when the bot is silenced - a human taking over a
+    conversation should still see the full history."""
+    # Link first, so the contact's CRM record (business, prior pitch,
+    # email) is built up from this message even when no reply goes out.
+    contact = link_contact(from_number, text)
+
+    if not is_bot_enabled():
+        log.info("Chatbot globally disabled - not replying to %r", from_number)
+        return
+    if not contact.get("bot_enabled", True):
+        log.info("Chatbot disabled for %r (human handling) - not replying", from_number)
+        return
+
     reply, _contact, elapsed_ms = generate_reply(from_number, text)
     if not reply:
         return

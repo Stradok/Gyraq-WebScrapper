@@ -114,10 +114,14 @@ def _init_schema(conn: sqlite3.Connection) -> None:
                 pitch TEXT,
                 notes TEXT,
                 created_at TEXT,
-                updated_at TEXT
+                updated_at TEXT,
+                bot_enabled INTEGER DEFAULT 1
             )
             """
         )
+        contact_cols = {row["name"] for row in conn.execute("PRAGMA table_info(contacts)")}
+        if "bot_enabled" not in contact_cols:
+            conn.execute("ALTER TABLE contacts ADD COLUMN bot_enabled INTEGER DEFAULT 1")
         # Any job still marked "running" or "paused" from a previous process
         # (e.g. the container was restarted mid-scrape, or while paused) is
         # orphaned - its in-memory pause/cancel controls are gone with the

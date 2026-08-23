@@ -541,10 +541,49 @@ Meta-approved message *template* — template creation/approval isn't built
 yet, since it only matters once you're past the receiving/replying setup
 above.
 
-Incoming WhatsApp messages are currently recorded (`GET /whatsapp/inbox`)
-but not auto-replied to — the auto-reply logic (what to say, staying
-within FAQ/info-collection bounds, never quoting prices) is a deliberate
-next step, not built silently alongside the plumbing.
+### The inbound chatbot
+
+Incoming messages are recorded (`GET /whatsapp/inbox`) **and** auto-replied
+to by a local LLM. Replying to someone who messaged you is a normal use of
+the API, so this works without a Meta template — the template restriction
+above only applies to cold outreach.
+
+The **WhatsApp chatbot** section of the web UI holds everything for it:
+
+- **Model picker.** Roman Urdu handling varies a lot by model. Measured on
+  this setup: `qwen3:8b` handles it correctly at ~5-8s per reply;
+  `gemma3:12b` replies in English no matter what the customer wrote;
+  `qwen3:4b` is *slower* (30-78s) because it's a reasoning model, not
+  faster. Reasoning-model chain-of-thought is stripped in code before
+  sending, regardless of model.
+- **Editable instructions**, defaulting to a prompt describing Gyraq's real
+  services and pricing structure, with explicit rules against inventing
+  case studies, statistics, or specific prices.
+- **Test reply** box — see what the bot would say (and how long it took)
+  without sending anything or touching a contact record.
+
+**Kill switches.** Two independent ways to stop the bot talking:
+
+- **Global** — the ON/OFF button at the top of the WhatsApp chatbot
+  section. Stops replies to everyone.
+- **Per-chat** — the "I'll take over" button on any contact. Use this when
+  you're personally talking to a lead so the bot can't cut into a real
+  sales conversation; "Hand back to bot" re-enables it.
+
+In both cases inbound messages are still recorded and still update the
+contact's CRM record — only the reply is suppressed, so a human taking over
+still sees the full history.
+
+### Contacts (per-number CRM)
+
+The **WhatsApp contacts** section lists everyone who's messaged the number,
+searchable by phone, email, or business name. Each contact is automatically
+linked back to prior outreach where possible — by matching the phone number
+against WhatsApp drafts, or by matching an email address they mention in the
+conversation against emails already sent. That means someone messaging from
+a brand-new number still gets connected to their history if they mention
+their email. Clicking a contact shows the full interleaved conversation,
+with reply-generation time and send status on each bot message.
 
 ## Data viewer & stats
 
@@ -563,6 +602,174 @@ fits in the truncated table columns. Backed by `GET /results` (list) and
 The **Sent emails** panel is a dedicated table of everything actually
 sent (business, recipient, subject, pitch type, when) — separate from
 **Drafted emails**, which stays focused on what's pending review/retry.
+
+## Troubleshooting first-time setup
+
+Every problem listed here was actually hit and fixed during development —
+this isn't a generic checklist.
+
+### All platforms
+
+**"Port 8080 is already in use" / the container won't start.**
+Something else on the machine owns that port. Either stop it, or change the
+host side of the mapping in `docker-compose.yml` (`"8081:8080"` serves the
+app on `http://localhost:8081` instead). If you change it, the Electron app
+needs `API_PORT` set to match.
+
+**The web UI loads but everything says "unauthorized" / keeps asking for a
+token.** Every API route needs the app's access token. Get it with:
+
+```bash
+docker compose logs | grep "Access token"    # Docker
+cat data/.auth_token                          # either setup
+```
+
+Paste it into the sign-in box once and it's remembered in that browser. The
+Electron app reads the file directly and never asks.
+
+**The page looks stale / a feature you just added isn't there.** The UI is a
+single static page that browsers and the Electron shell both cache
+aggressively. Hit the **⟳ Refresh** button (does a real reload, not just a
+data refetch), or `Ctrl/Cmd+R` inside the desktop app. A full quit and
+relaunch always works.
+
+**Drafting produces nothing, or jobs finish with 0 drafts.** Drafts are only
+created when a business has a *usable* contact. Businesses with no website,
+no discoverable email, and no phone number are skipped — that's expected, not
+a failure. Check the container logs for `Drafted ... pitch for` lines to
+confirm it's working at all. If *nothing* drafts, verify Ollama is reachable:
+
+```bash
+curl http://localhost:11434/api/tags          # from the host
+docker compose exec scraper curl http://host.docker.internal:11434/api/tags
+```
+
+If the first works and the second doesn't, the container can't see the host —
+make sure the `extra_hosts: host.docker.internal:host-gateway` line is present
+in `docker-compose.yml` (it is by default).
+
+**A search asked for 500 results and returned far fewer.** Google Maps caps
+its results feed per map viewport, not per query — a broad location like
+"in Pakistan" doesn't search a whole country. The scraper zooms the map out
+and keeps scrolling when the feed stalls, which roughly doubles the yield,
+but there's still a hard ceiling per query. For real volume, run several
+narrower searches (one per city) instead of one broad one.
+
+**Emails bounce with "No such user".** Scraped addresses come from what
+businesses actually publish, which is sometimes wrong (a real bounce here was
+a business listing `...@gamil.com`). Two guards exist: typo'd lookalikes of
+major providers are rejected outright, and a mailbox is SMTP-probed before
+drafting to it. Neither catches everything — a wrong-but-valid mailbox still
+accepts mail. Some networks also block outbound port 25, which makes the
+probe inconclusive (it deliberately fails open rather than dropping good
+leads).
+
+**Sent mail doesn't appear in the Sent folder.** SMTP submission alone
+doesn't file a copy — that's a webmail convention, not part of the protocol.
+Fill in the IMAP fields under **Connections → Email** and it will. Watch for
+typos in the host (`iamp.` instead of `imap.` cost real time here); the
+**Test IMAP** button catches it immediately.
+
+**WhatsApp sends fail with "WhatsApp isn't configured yet".** Expected until
+credentials are filled in under **Connections**. Note the platform rule:
+replying to someone who messaged you first works normally, but starting a
+cold conversation requires a Meta-approved message template. Cold WhatsApp
+drafts will keep failing until that template exists — that's Meta's rule, not
+a bug in this app.
+
+**The chatbot replies in English to Roman Urdu messages, or leaks its own
+reasoning.** Model-dependent. Measured here: `qwen3:8b` handles Roman Urdu
+correctly at ~5-8s; `gemma3:12b` ignores it and answers in English;
+`qwen3:4b` is *slower* (30-78s) because it's a reasoning model. Reasoning
+leakage is stripped in code regardless of model, but pick the model in the
+**WhatsApp chatbot** section and use its **Test reply** box (which shows
+response time) to check before relying on it.
+
+**DuckDuckGo research suddenly returns nothing.** The Reddit/review/LinkedIn
+research uses DDG's HTML endpoint, which rate-limits an IP after enough rapid
+requests. Normal scrape pacing never gets close, but heavy testing can trip
+it. It clears on its own; drafting continues without research grounding
+meanwhile.
+
+### Linux
+
+**`permission denied` talking to the Docker daemon.** Add yourself to the
+`docker` group, then log out and back in (the group change doesn't apply to
+your existing shell):
+
+```bash
+sudo usermod -aG docker "$USER"
+```
+
+**The Electron app crashes with "SUID sandbox helper binary … not configured
+correctly".** Chromium's sandbox needs root-owned setuid permissions:
+
+```bash
+sudo chown root:root electron/node_modules/electron/dist/chrome-sandbox
+sudo chmod 4755 electron/node_modules/electron/dist/chrome-sandbox
+```
+
+Run both commands — a common mistake is running only the `chown` and assuming
+it worked.
+
+**The app doesn't show up in the application launcher.** The `.desktop` file
+goes in `~/.local/share/applications/`, and its `Exec=` path must be
+absolute. Some desktop environments need `update-desktop-database
+~/.local/share/applications` before it appears.
+
+### macOS
+
+**Docker Desktop must actually be running** — not just installed. The
+whale icon in the menu bar should be steady, not animating.
+
+**Apple Silicon (M1/M2/M3):** the Playwright base image is `linux/amd64`, so
+it runs under emulation. It works but is noticeably slower, and Docker may
+warn about the platform mismatch — that warning is safe to ignore. If startup
+is very slow, raise Docker Desktop's memory limit (Settings → Resources) to
+at least 4 GB.
+
+**"App can't be opened because it is from an unidentified developer"** when
+launching the Electron build: right-click the app → **Open** (rather than
+double-clicking), then confirm once.
+
+### Windows
+
+**Docker Desktop needs WSL 2.** If it complains, run `wsl --install` in an
+admin PowerShell and reboot. Also make sure virtualization is enabled in
+BIOS/UEFI — Docker Desktop won't start without it.
+
+**Native setup: "running scripts is disabled on this system".** PowerShell's
+execution policy blocks `run.ps1`. Either use the bundled bypass:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+or allow local scripts once, per-user:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+**Line endings break shell scripts.** If Git converted `run.sh`/`setup.sh` to
+CRLF, running them inside the container fails with `\r: command not found`.
+Fix with:
+
+```powershell
+git config --global core.autocrlf input
+```
+
+then re-clone (or run `dos2unix` on the affected files).
+
+**`host.docker.internal` doesn't resolve / Ollama is unreachable from the
+container.** On Docker Desktop for Windows this normally works out of the
+box, but if Ollama is bound only to `127.0.0.1` the container still can't
+reach it. Set `OLLAMA_HOST=0.0.0.0` in Ollama's environment and restart it.
+
+**Antivirus/Defender quarantines the bundled Chromium.** Playwright downloads
+a real browser binary, which some scanners flag. Add the repo folder (or
+Playwright's cache directory) to your exclusions if the download keeps
+disappearing.
 
 ## Configuration
 
@@ -617,12 +824,17 @@ src/pitch_writer.py               calls local Ollama to draft a personalized out
 src/prompt_settings.py            the editable system prompt + selected Ollama model (default + DB override)
 src/company_profile.py            company name/website/description, injected as context for pitch_writer
 src/ollama_client.py              lists installed Ollama models for the model-picker dropdown
-src/reputation_finder.py          searches Reddit/review sites for real complaints about a business
-src/drafts_store.py               drafts CRUD (pending/sent/failed) against the database
+src/reputation_finder.py          searches Reddit/review/LinkedIn/social for real signals about a business
+src/drafts_store.py               drafts CRUD (pending/sent/failed, email or whatsapp) against the database
 src/mail_settings.py              SMTP/IMAP credentials CRUD against the database
-src/mailer.py                     actually sends via smtplib; IMAP connectivity test
+src/mailer.py                     actually sends via smtplib; files a copy to the IMAP Sent folder
+src/mailbox_verify.py             SMTP RCPT probe: checks a mailbox exists before drafting to it
 src/whatsapp_settings.py          WhatsApp Cloud API credentials CRUD against the database
-src/whatsapp.py                   Meta Graph API client; webhook payload parsing
+src/whatsapp.py                   Meta Graph API client; webhook parsing; inbox/outbox/thread storage
+src/whatsapp_bot.py               the inbound-DM chatbot: system prompt, reply generation, reasoning-strip
+src/contacts.py                   per-number CRM: links an inbound DM to prior outreach history
+src/bot_switch.py                 global chatbot on/off kill switch (per-chat lives on the contact)
+src/job_control.py                in-memory pause/resume/stop flags for a running scrape
 src/results_store.py              lists/reads data/results/*.json for the data viewer
 src/stats.py                      aggregate counts for the Overview panel
 src/live_view.py                  holds the latest screenshot, served at GET /live

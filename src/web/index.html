@@ -237,6 +237,19 @@
   .filter-group button.active { color: var(--text); border-color: var(--accent); }
   .stat-tile { cursor: pointer; }
   .stat-tile:hover { background: rgba(79,140,255,0.08); }
+  .bot-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  .bot-switch-row.off { border-color: var(--err); }
+  .bot-switch-label { font-weight: 600; font-size: 13px; color: var(--ok); }
+  .bot-switch-row.off .bot-switch-label { color: var(--err); }
   .contacts-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; align-items: start; }
   @media (max-width: 700px) { .contacts-layout { grid-template-columns: 1fr; } }
   .contact-row {
@@ -619,6 +632,14 @@
       Replying to an inbound message doesn't need a Meta-approved template, so this works as soon as
       WhatsApp is connected under Connections.
     </p>
+
+    <div id="botSwitchRow" class="bot-switch-row">
+      <div>
+        <div id="botSwitchLabel" class="bot-switch-label">Chatbot is ON</div>
+        <div class="meta">When off, inbound messages are still saved and linked to contacts — the bot just won't reply to anyone.</div>
+      </div>
+      <button id="botSwitchBtn">Turn off</button>
+    </div>
 
     <p class="meta" style="margin-bottom:6px">Model — needs strong Roman Urdu handling. Tested here: qwen3:8b handles it well; gemma3:12b replies in English regardless; qwen2.5:3b-instruct is fastest but drops Roman Urdu.</p>
     <div class="row" style="margin-bottom:14px">
@@ -1077,6 +1098,15 @@ async function loadContactDetail(phone) {
       ${escapeHtml(c.phone_number)}${c.email ? ' · ' + escapeHtml(c.email) : ''}
       ${c.pitch ? ' · prior outreach: ' + escapeHtml(c.pitch) : ''}
     </div>
+    <div class="bot-switch-row ${c.bot_enabled ? '' : 'off'}" style="margin-top:10px">
+      <div>
+        <div class="bot-switch-label">${c.bot_enabled ? 'Bot replies to this chat' : 'You are handling this chat'}</div>
+        <div class="meta">Turn off while you're talking to them yourself, so the bot can't cut in.</div>
+      </div>
+      <button data-action="toggle-bot" data-phone="${escapeHtml(c.phone_number)}" data-enabled="${c.bot_enabled ? '1' : '0'}">
+        ${c.bot_enabled ? 'I\'ll take over' : 'Hand back to bot'}
+      </button>
+    </div>
     <div class="thread">
       ${c.thread.map(m => `
         <div class="thread-msg ${m.direction} ${m.status === 'failed' ? 'failed' : ''}">
@@ -1091,6 +1121,20 @@ async function loadContactDetail(phone) {
 $('contactList').addEventListener('click', (e) => {
   const row = e.target.closest('.contact-row');
   if (row) loadContactDetail(row.dataset.phone);
+});
+
+$('contactDetail').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action="toggle-bot"]');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await apiFetch(`/contacts/${encodeURIComponent(btn.dataset.phone)}/bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: btn.dataset.enabled !== '1' }),
+    });
+    await loadContactDetail(btn.dataset.phone);
+  } catch (err) { /* auth gate already shown by apiFetch if needed */ }
 });
 
 let contactSearchTimer = null;
@@ -1508,6 +1552,34 @@ async function testChatbot() {
   }
 }
 
+function renderBotSwitch(enabled) {
+  $('botSwitchRow').classList.toggle('off', !enabled);
+  $('botSwitchLabel').textContent = enabled ? 'Chatbot is ON' : 'Chatbot is OFF';
+  $('botSwitchBtn').textContent = enabled ? 'Turn off' : 'Turn on';
+}
+
+async function loadBotSwitch() {
+  const res = await apiFetch('/settings/chatbot/enabled');
+  const data = await res.json();
+  renderBotSwitch(data.enabled);
+}
+
+$('botSwitchBtn').addEventListener('click', async () => {
+  const turningOff = $('botSwitchBtn').textContent === 'Turn off';
+  if (turningOff && !confirm('Stop the chatbot replying to everyone? Messages will still be saved.')) return;
+  $('botSwitchBtn').disabled = true;
+  try {
+    const res = await apiFetch('/settings/chatbot/enabled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: turningOff ? false : true }),
+    });
+    renderBotSwitch((await res.json()).enabled);
+  } finally {
+    $('botSwitchBtn').disabled = false;
+  }
+});
+
 $('chatbotSaveBtn').addEventListener('click', saveChatbotPrompt);
 $('chatbotResetBtn').addEventListener('click', resetChatbotPrompt);
 $('chatbotTestBtn').addEventListener('click', testChatbot);
@@ -1642,6 +1714,7 @@ function refreshAll() {
   loadWhatsAppSettings();
   loadPrompt();
   loadChatbot();
+  loadBotSwitch();
   loadCompanyProfile();
   setupRemoteAccess();
 }
