@@ -89,6 +89,31 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS whatsapp_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone_number TEXT,
+                text TEXT,
+                status TEXT,
+                error TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contacts (
+                phone_number TEXT PRIMARY KEY,
+                email TEXT,
+                business_name TEXT,
+                pitch TEXT,
+                notes TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
         # Any job still marked "running" or "paused" from a previous process
         # (e.g. the container was restarted mid-scrape, or while paused) is
         # orphaned - its in-memory pause/cancel controls are gone with the

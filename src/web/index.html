@@ -237,6 +237,30 @@
   .filter-group button.active { color: var(--text); border-color: var(--accent); }
   .stat-tile { cursor: pointer; }
   .stat-tile:hover { background: rgba(79,140,255,0.08); }
+  .contacts-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 700px) { .contacts-layout { grid-template-columns: 1fr; } }
+  .contact-row {
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    cursor: pointer;
+  }
+  .contact-row:hover, .contact-row.active { border-color: var(--accent); background: rgba(79,140,255,0.08); }
+  .contact-row .name { font-weight: 600; font-size: 13px; }
+  .contact-row .meta { margin: 2px 0 0; }
+  .thread { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .thread-msg {
+    max-width: 80%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    white-space: pre-wrap;
+  }
+  .thread-msg.in { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .thread-msg.out { align-self: flex-end; background: rgba(79,140,255,0.15); border: 1px solid var(--accent); }
+  .thread-msg.out.failed { background: rgba(255,90,90,0.1); border-color: var(--err); }
+  .thread-msg .ts { display: block; font-size: 10px; color: var(--muted); margin-top: 4px; }
   .draft-checkbox { margin-right: 8px; }
   .item-actions { display: flex; gap: 6px; margin-top: 8px; }
   .item-actions button {
@@ -418,6 +442,7 @@
         <option value="sec-jobs">Jobs</option>
         <option value="sec-drafts">Drafted emails</option>
         <option value="sec-sent">Sent emails</option>
+        <option value="sec-contacts">WhatsApp contacts</option>
         <option value="sec-data">Scraped data</option>
       </select>
       <button id="installBtn" class="install-btn" hidden>Install app</button>
@@ -527,6 +552,11 @@
       <select id="modelSelect" class="nav-select" style="flex:1"></select>
     </div>
 
+    <p class="meta" style="margin-bottom:6px">WhatsApp chatbot model — replies to inbound DMs. Needs strong Roman Urdu handling; qwen models tested noticeably better than gemma3 for this specifically.</p>
+    <div class="row" style="margin-bottom:14px">
+      <select id="whatsappModelSelect" class="nav-select" style="flex:1"></select>
+    </div>
+
     <p class="meta" style="margin-bottom:10px">
       Instructions — what the LLM searches for, what services it offers, and how it writes each email.
       Each business is sent as JSON with these fields: <code>name, category, rating, review_count,
@@ -581,6 +611,16 @@
   <section id="sec-sent">
     <h2>Sent emails</h2>
     <div id="sentTableWrap" class="table-wrap"><div id="sentTable" class="empty">Loading…</div></div>
+  </section>
+
+  <section id="sec-contacts">
+    <h2>WhatsApp contacts</h2>
+    <p class="meta" style="margin-bottom:10px">Everyone who's DMed the WhatsApp number, auto-linked to prior outreach (business, email, what we pitched them) when we can match it. The bot replies automatically once WhatsApp is connected under Connections.</p>
+    <input type="text" id="contactSearch" placeholder="Search by phone, email, or business name…" style="width:100%;margin-bottom:10px">
+    <div class="contacts-layout">
+      <div id="contactList" class="empty">Loading…</div>
+      <div id="contactDetail" class="empty">Select a contact to see the full conversation.</div>
+    </div>
   </section>
 
   <section id="sec-data">
@@ -964,6 +1004,65 @@ async function refreshSentEmails() {
   `;
 }
 
+let activeContact = null;
+
+async function loadContacts() {
+  const q = $('contactSearch').value.trim();
+  const res = await apiFetch('/contacts' + (q ? '?q=' + encodeURIComponent(q) : ''));
+  const contacts = await res.json();
+  const el = $('contactList');
+  if (!contacts.length) {
+    el.className = 'empty';
+    el.textContent = q ? 'No contacts match that search.' : 'No WhatsApp contacts yet.';
+    return;
+  }
+  el.className = '';
+  el.innerHTML = contacts.map(c => `
+    <div class="contact-row ${c.phone_number === activeContact ? 'active' : ''}" data-phone="${escapeHtml(c.phone_number)}">
+      <div class="name">${escapeHtml(c.business_name || c.phone_number)}</div>
+      <div class="meta">${escapeHtml(c.phone_number)}${c.email ? ' · ' + escapeHtml(c.email) : ''}</div>
+      ${c.pitch ? `<div class="meta">Prior outreach: ${escapeHtml(c.pitch)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+async function loadContactDetail(phone) {
+  activeContact = phone;
+  $('contactList').querySelectorAll('.contact-row').forEach(r =>
+    r.classList.toggle('active', r.dataset.phone === phone));
+
+  const res = await apiFetch('/contacts/' + encodeURIComponent(phone));
+  const c = await res.json();
+  const el = $('contactDetail');
+  el.className = '';
+  el.innerHTML = `
+    <div class="item-top"><span class="item-title">${escapeHtml(c.business_name || c.phone_number)}</span></div>
+    <div class="meta">
+      ${escapeHtml(c.phone_number)}${c.email ? ' · ' + escapeHtml(c.email) : ''}
+      ${c.pitch ? ' · prior outreach: ' + escapeHtml(c.pitch) : ''}
+    </div>
+    <div class="thread">
+      ${c.thread.map(m => `
+        <div class="thread-msg ${m.direction} ${m.status === 'failed' ? 'failed' : ''}">
+          ${escapeHtml(m.text)}
+          <span class="ts">${m.direction === 'in' ? 'them' : 'bot'} · ${timeAgo(m.ts)}${m.status === 'failed' ? ' · failed to send' : ''}</span>
+        </div>
+      `).join('') || '<div class="meta">No messages recorded yet.</div>'}
+    </div>
+  `;
+}
+
+$('contactList').addEventListener('click', (e) => {
+  const row = e.target.closest('.contact-row');
+  if (row) loadContactDetail(row.dataset.phone);
+});
+
+let contactSearchTimer = null;
+$('contactSearch').addEventListener('input', () => {
+  clearTimeout(contactSearchTimer);
+  contactSearchTimer = setTimeout(loadContacts, 300);
+});
+
 async function sendDrafts(body) {
   $('sendSelectedBtn').disabled = true;
   $('sendAllBtn').disabled = true;
@@ -1221,14 +1320,24 @@ async function loadPrompt() {
   const data = await res.json();
   $('promptText').value = data.system_prompt;
 
-  const select = $('modelSelect');
   const models = data.available_models && data.available_models.length
     ? data.available_models
     : [data.model];
+
+  const select = $('modelSelect');
   select.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
   select.value = data.model;
+
+  const waModels = data.available_models && data.available_models.length
+    ? data.available_models
+    : [data.whatsapp_model];
+  const waSelect = $('whatsappModelSelect');
+  waSelect.innerHTML = waModels.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  waSelect.value = data.whatsapp_model;
+
   if (!data.available_models || !data.available_models.length) {
     select.title = "Couldn't reach Ollama to list models - showing the currently configured one only.";
+    waSelect.title = select.title;
   }
 }
 
@@ -1240,6 +1349,17 @@ async function onModelChange() {
     body: JSON.stringify({ model }),
   });
   $('promptStatus').textContent = `Model set to ${model}.`;
+  $('promptStatus').className = 'status-line ok';
+}
+
+async function onWhatsappModelChange() {
+  const model = $('whatsappModelSelect').value;
+  await apiFetch('/settings/prompt/whatsapp-model', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
+  $('promptStatus').textContent = `WhatsApp chatbot model set to ${model}.`;
   $('promptStatus').className = 'status-line ok';
 }
 
@@ -1271,6 +1391,7 @@ async function saveCompanyProfile() {
 }
 
 $('modelSelect').addEventListener('change', onModelChange);
+$('whatsappModelSelect').addEventListener('change', onWhatsappModelChange);
 $('companySaveBtn').addEventListener('click', saveCompanyProfile);
 
 async function savePrompt() {
@@ -1355,6 +1476,7 @@ function refreshLists() {
   refreshSentEmails();
   refreshStats();
   refreshResultFiles();
+  loadContacts();
 }
 
 // Everything, including settings forms - only called on initial sign-in.

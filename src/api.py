@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import config, job_control
 from .auth import get_or_create_token, verify_token
 from .company_profile import get_company_profile, save_company_profile
+from .contacts import get_contact, list_contacts
 from .drafts_store import delete_draft, get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft, update_draft
 from .jobs import Job, job_store
@@ -24,9 +25,11 @@ from .prompt_settings import (
     DEFAULT_SYSTEM_PROMPT,
     get_ollama_model,
     get_system_prompt,
+    get_whatsapp_model,
     reset_system_prompt,
     save_ollama_model,
     save_system_prompt,
+    save_whatsapp_model,
 )
 from .qr import make_qr_png
 from .results_store import list_result_files, read_result_file
@@ -34,12 +37,15 @@ from .stats import get_stats
 from .whatsapp import (
     WhatsAppNotConfigured,
     list_inbox,
+    get_thread,
     parse_webhook_payload,
     record_incoming,
+    record_outgoing,
     send_text as send_whatsapp_text,
     test_connection as test_whatsapp_connection,
     verify_webhook_signature,
 )
+from .whatsapp_bot import generate_reply
 from .whatsapp_settings import (
     get_whatsapp_settings,
     masked_whatsapp_settings,
@@ -65,6 +71,7 @@ AUTH_PREFIXES = (
     "/results",
     "/stats",
     "/whatsapp/inbox",
+    "/contacts",
     "/qr",
 )
 
@@ -378,6 +385,7 @@ def get_prompt_route() -> dict:
         "system_prompt": get_system_prompt(),
         "default_prompt": DEFAULT_SYSTEM_PROMPT,
         "model": get_ollama_model(),
+        "whatsapp_model": get_whatsapp_model(),
         "available_models": list_models(),
     }
 
@@ -395,6 +403,11 @@ def reset_prompt_route() -> dict:
 @app.post("/settings/prompt/model")
 def update_model_route(req: ModelRequest) -> dict:
     return {"model": save_ollama_model(req.model)}
+
+
+@app.post("/settings/prompt/whatsapp-model")
+def update_whatsapp_model_route(req: ModelRequest) -> dict:
+    return {"whatsapp_model": save_whatsapp_model(req.model)}
 
 
 @app.get("/settings/company")
@@ -436,6 +449,19 @@ def whatsapp_inbox() -> list[dict]:
     return list_inbox()
 
 
+@app.get("/contacts")
+def contacts_route(request: Request) -> list[dict]:
+    return list_contacts(request.query_params.get("q"))
+
+
+@app.get("/contacts/{phone_number}")
+def contact_detail_route(phone_number: str) -> dict:
+    contact = get_contact(phone_number)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="contact not found")
+    return {**contact, "thread": get_thread(phone_number, limit=50)}
+
+
 @app.get("/webhooks/whatsapp")
 def verify_whatsapp_webhook(request: Request) -> PlainTextResponse:
     mode = request.query_params.get("hub.mode")
@@ -461,7 +487,25 @@ async def receive_whatsapp_webhook(request: Request) -> dict:
     payload = json.loads(raw)
     for msg in parse_webhook_payload(payload):
         record_incoming(msg["from"], msg["text"], payload)
+        _auto_reply(msg["from"], msg["text"])
     return {"status": "received"}
+
+
+def _auto_reply(from_number: str, text: str) -> None:
+    """Replying to an inbound DM is a normal, fully-supported use of the
+    WhatsApp API (unlike cold-starting a conversation, see whatsapp.
+    send_text) - no template required. Never lets a reply/send failure
+    break webhook processing; the reply (or failure) is always recorded
+    so it shows up in the contact's thread either way."""
+    reply, _contact = generate_reply(from_number, text)
+    if not reply:
+        return
+    try:
+        send_whatsapp_text(from_number, reply)
+        record_outgoing(from_number, reply, "sent")
+    except Exception as e:
+        record_outgoing(from_number, reply, "failed", f"{type(e).__name__}: {e}")
+        log.warning("Failed to send WhatsApp auto-reply to %r", from_number, exc_info=True)
 
 
 @app.get("/qr")

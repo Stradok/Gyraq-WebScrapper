@@ -37,6 +37,11 @@ DB_FILE = os.environ.get("DB_FILE", "data/app.db")
 GENERATE_PITCHES = _bool("GENERATE_PITCHES", False)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:12b")
+# Verified live: qwen3:8b handles Roman Urdu naturally where gemma3:12b just
+# replies in English regardless, and qwen2.5:7b-instruct produces broken
+# mixed-script output - a separate setting from OLLAMA_MODEL since that one
+# is already validated for email pitch quality specifically.
+WHATSAPP_OLLAMA_MODEL = os.environ.get("WHATSAPP_OLLAMA_MODEL", "qwen3:8b")
 OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT_S", "120"))
 
 RESEARCH_REPUTATION = _bool("RESEARCH_REPUTATION", False)
