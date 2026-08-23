@@ -13,6 +13,7 @@ from .email_finder import find_email
 from .live_view import set_frame
 from .models import Business, Review
 from .pitch_writer import generate_pitch
+from .reputation_finder import find_reputation_signals
 from .seen_store import SeenStore, extract_place_id
 
 log = logging.getLogger(__name__)
@@ -269,7 +270,12 @@ class MapsScraper:
         biz.reviews = self._extract_reviews(config.REVIEWS_PER_BUSINESS)
 
         if config.GENERATE_PITCHES and biz.email:
-            pitch = generate_pitch(biz)
+            reputation = {}
+            if config.RESEARCH_REPUTATION:
+                reputation = find_reputation_signals(
+                    self.context, biz.name, biz.address, config.REPUTATION_TIMEOUT_MS
+                )
+            pitch = generate_pitch(biz, reputation)
             if pitch:
                 save_draft(biz.email, pitch["subject"], pitch["body"], biz.name, pitch["pitch"])
                 log.info("Drafted %r pitch for %r -> %s", pitch["pitch"], biz.name, biz.email)

@@ -344,6 +344,40 @@ business address — commercial email conventionally requires one, and the
 default is a placeholder (`[YOUR BUSINESS ADDRESS HERE]`) that will
 otherwise go out literally as written.
 
+### Reddit & review research
+
+When `RESEARCH_REPUTATION=true` (on by default in `docker-compose.yml`),
+before drafting each pitch the scraper also searches the web (via
+DuckDuckGo's HTML results — no API key) for the business's name plus
+"reddit" and separately plus "reviews complaints", and hands whatever it
+finds to the model alongside the Google review text.
+
+This changes what the email leads with:
+
+- **Found a real, specific complaint** (a Reddit thread or a review-site
+  mention of missed calls, long waits, no website, etc.) — the model cites
+  it directly as evidence: *"I noticed on Yelp that [business] often has
+  long wait times on weekends..."* This is the strongest version of the
+  email, grounded in something a stranger can independently verify.
+- **Found only positive/neutral mentions, or nothing at all** — the model
+  is explicitly instructed not to fabricate a complaint or twist a good
+  review into a fake one. It falls back to a specific, confident pitch
+  grounded in a real fact it does have (no website, their category's
+  common pain points) — still a strong, non-generic email, just without a
+  cited complaint.
+
+Verified directly: fed the same business real Yelp/Reddit search results
+with one genuine complaint mixed with several positive mentions — the
+model correctly cited only the real complaint and ignored the positive
+ones rather than inventing something from them; with no complaint
+available at all, it wrote a specific pitch based on the business having
+no website rather than a generic template.
+
+This adds real time per business (two more page loads) and is another
+site being scraped in a way its terms likely don't invite, same caveat as
+the rest of this project — turn it off with `RESEARCH_REPUTATION=false` if
+you don't want it.
+
 **LinkedIn DMs and SMS/phone outreach** aren't built — each has its own
 account setup, cost, and ban/compliance risk significantly different from
 email and WhatsApp, worth deciding on deliberately rather than bolting on
@@ -437,6 +471,8 @@ Set these as environment variables (see `docker-compose.yml`):
 | `OLLAMA_MODEL` | `gemma3:12b` | Which pulled Ollama model to use for drafting |
 | `OLLAMA_TIMEOUT_S` | `120` | Timeout per draft (covers Ollama's cold-start model load) |
 | `COMPANY_ADDRESS` | `[YOUR BUSINESS ADDRESS HERE]` | Appended to every draft's footer — set this before sending anything real |
+| `RESEARCH_REPUTATION` | `false` (`true` in `docker-compose.yml`) | Search Reddit/review sites for real complaints to ground pitches in |
+| `REPUTATION_TIMEOUT_MS` | `15000` | Timeout for each reputation search |
 | `DEFAULT_MAX_RESULTS` | `60` | Used when a query entry doesn't set `max_results` |
 | `HEADLESS` | `true` | Set to `false` to run Chromium with a visible window (needs a display) |
 | `LOG_LEVEL` | `INFO` | Python logging level |
@@ -465,6 +501,7 @@ src/queue_runner.py               worker loop: drains API jobs, then queries.yam
 src/maps_scraper.py               Playwright scraping logic
 src/email_finder.py               best-effort contact-email lookup from a business's website
 src/pitch_writer.py               calls local Ollama to draft a personalized outreach email
+src/reputation_finder.py          searches Reddit/review sites for real complaints about a business
 src/drafts_store.py               drafts CRUD (pending/sent/failed) against the database
 src/mail_settings.py              SMTP/IMAP credentials CRUD against the database
 src/mailer.py                     actually sends via smtplib; IMAP connectivity test
