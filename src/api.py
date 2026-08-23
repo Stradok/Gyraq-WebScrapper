@@ -1,6 +1,6 @@
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,7 @@ from . import config
 from .drafts_store import list_drafts as _list_drafts
 from .drafts_store import save_draft
 from .jobs import Job, job_store
+from .live_view import get_frame
 
 app = FastAPI(title="Maps Scraper API")
 
@@ -82,6 +83,18 @@ def create_draft(req: DraftRequest) -> dict:
 @app.get("/drafts")
 def list_drafts() -> list[dict]:
     return _list_drafts()
+
+
+@app.get("/live")
+def live_frame() -> Response:
+    data, taken_at = get_frame()
+    if data is None:
+        return Response(status_code=204)
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store", "X-Frame-Taken-At": str(taken_at)},
+    )
 
 
 # Mounted last so it never shadows the API routes above.

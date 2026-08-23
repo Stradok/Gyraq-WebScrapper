@@ -142,6 +142,14 @@ whatever `API_PORT` you set) — a live view of running/finished searches
 and generated drafts, auto-refreshing every few seconds. No install, it's
 just a page your browser loads.
 
+It also shows an actual **live screenshot** of the page the browser is on
+right now (the search results, or whichever business listing it's
+currently reading), refreshed every ~1.5s — so you can watch it work
+instead of just seeing a status badge. The scraper stays headless (no
+visible browser window) for portability; this gets you the same visual
+feedback without needing X11/VNC forwarding, and it works identically from
+a phone since it's just an image over HTTP.
+
 To check it from your phone on the same WiFi:
 
 1. Find the laptop's local network IP:
@@ -316,6 +324,7 @@ src/maps_scraper.py               Playwright scraping logic
 src/email_finder.py               best-effort contact-email lookup from a business's website
 src/pitch_writer.py               calls local Ollama to draft a personalized outreach email
 src/drafts_store.py               appends/reads generated drafts to/from data/drafts.jsonl
+src/live_view.py                  holds the latest screenshot, served at GET /live
 src/seen_store.py                 place-ID dedup, persisted to data/seen_places.txt
 src/exporter.py                   CSV/JSON writers
 src/models.py                     Business/Review data model

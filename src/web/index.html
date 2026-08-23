@@ -143,6 +143,17 @@
     padding: 8px 12px;
     white-space: nowrap;
   }
+  .live-frame {
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0d0f13;
+    border: 1px solid var(--border);
+  }
+  .live-frame img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
 </style>
 </head>
 <body>
@@ -165,6 +176,13 @@
     </div>
   </section>
 
+  <section id="liveSection" hidden>
+    <h2>Live view</h2>
+    <div class="live-frame">
+      <img id="liveImg" alt="Live browser view">
+    </div>
+  </section>
+
   <section>
     <h2>Jobs</h2>
     <div id="jobs" class="empty">Loading…</div>
@@ -180,6 +198,23 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+
+let lastLiveUrl = null;
+async function refreshLive() {
+  try {
+    const res = await fetch('/live?t=' + Date.now(), { cache: 'no-store' });
+    if (res.status === 204) {
+      $('liveSection').hidden = true;
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    $('liveImg').src = url;
+    if (lastLiveUrl) URL.revokeObjectURL(lastLiveUrl);
+    lastLiveUrl = url;
+    $('liveSection').hidden = false;
+  } catch (e) { /* ignore */ }
+}
 
 async function scrape() {
   const query = $('query').value.trim();
@@ -266,8 +301,10 @@ $('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') scrape();
 
 refreshJobs();
 refreshDrafts();
+refreshLive();
 setInterval(refreshJobs, 4000);
 setInterval(refreshDrafts, 4000);
+setInterval(refreshLive, 1500);
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});

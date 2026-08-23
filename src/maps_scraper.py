@@ -10,6 +10,7 @@ from playwright_stealth import Stealth
 from . import config
 from .drafts_store import save_draft
 from .email_finder import find_email
+from .live_view import set_frame
 from .models import Business, Review
 from .pitch_writer import generate_pitch
 from .seen_store import SeenStore, extract_place_id
@@ -104,6 +105,13 @@ class MapsScraper:
             except Exception:
                 continue
 
+    def _snapshot(self) -> None:
+        try:
+            data = self.page.screenshot(type="jpeg", quality=50, timeout=3000)
+            set_frame(data)
+        except Exception:
+            pass
+
     def search(self, query: str, max_results: int) -> list[Business]:
         page = self.page
         url = f"https://www.google.com/maps/search/{quote(query)}?hl=en"
@@ -117,6 +125,8 @@ class MapsScraper:
         except PWTimeout:
             log.warning("Timed out waiting for results for query %r", query)
             return []
+
+        self._snapshot()
 
         if page.locator('div[role="feed"]').count() == 0:
             # Query resolved directly to a single business detail page.
@@ -138,6 +148,7 @@ class MapsScraper:
                 page.goto(href, wait_until="domcontentloaded")
                 page.wait_for_selector("h1", timeout=15000)
                 _jitter(1.0, 2.5)
+                self._snapshot()
                 biz = self._extract_current_business()
                 if biz:
                     self._mark_seen(biz)
@@ -185,6 +196,7 @@ class MapsScraper:
                 feed.evaluate("el => el.scrollTop = el.scrollHeight")
             except Exception:
                 break
+            self._snapshot()
             _jitter(1.0, 2.0)
             if len(seen) == before:
                 stable_rounds += 1
