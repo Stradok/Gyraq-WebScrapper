@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import urllib.request
 
 from . import config
@@ -9,6 +10,22 @@ from .prompt_settings import get_whatsapp_model
 from .whatsapp import get_thread
 
 log = logging.getLogger(__name__)
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_UNCLOSED_THINK_RE = re.compile(r"^.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_reasoning(text: str) -> str:
+    """Reasoning models (the qwen3 family here) can emit their entire
+    chain-of-thought before the actual answer - verified live that
+    qwen3:4b leaked full internal deliberation, including draft attempts
+    and notes-to-self, straight into what would have been sent to a real
+    customer. Ollama usually separates this out, but not reliably across
+    models/settings, so strip it here no matter which model is selected."""
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    if "</think>" in cleaned.lower():
+        cleaned = _UNCLOSED_THINK_RE.sub("", cleaned)
+    return cleaned.strip()
 
 # Mirrors the actual current gyraq.com copy (services + pricing), not the
 # four-category framing used for cold email outreach - a prospect who
@@ -95,13 +112,15 @@ def _contact_context_line(contact: dict) -> str:
 
 
 def _build_system_prompt(contact: dict | None) -> str:
+    from .prompt_settings import get_whatsapp_prompt
+
     profile = get_company_profile()
     facts = []
     if profile.get("description"):
         facts.append(profile["description"])
     extra = f"\n\n{' '.join(facts)}" if facts else ""
     context = _contact_context_line(contact) if contact else ""
-    return CHATBOT_SYSTEM_PROMPT + extra + context
+    return get_whatsapp_prompt() + extra + context
 
 
 def _call_ollama_chat(messages: list[dict]) -> str | None:
@@ -116,7 +135,7 @@ def _call_ollama_chat(messages: list[dict]) -> str | None:
     )
     with urllib.request.urlopen(req, timeout=config.OLLAMA_TIMEOUT_S) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    return data.get("message", {}).get("content", "").strip() or None
+    return _strip_reasoning(data.get("message", {}).get("content", "")) or None
 
 
 def generate_reply(phone_number: str, incoming_text: str) -> tuple[str | None, dict]:

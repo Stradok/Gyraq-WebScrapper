@@ -26,10 +26,13 @@ from .prompt_settings import (
     get_ollama_model,
     get_system_prompt,
     get_whatsapp_model,
+    get_whatsapp_prompt,
     reset_system_prompt,
+    reset_whatsapp_prompt,
     save_ollama_model,
     save_system_prompt,
     save_whatsapp_model,
+    save_whatsapp_prompt,
 )
 from .qr import make_qr_png
 from .results_store import list_result_files, read_result_file
@@ -408,6 +411,50 @@ def update_model_route(req: ModelRequest) -> dict:
 @app.post("/settings/prompt/whatsapp-model")
 def update_whatsapp_model_route(req: ModelRequest) -> dict:
     return {"whatsapp_model": save_whatsapp_model(req.model)}
+
+
+@app.get("/settings/chatbot")
+def get_chatbot_route() -> dict:
+    from .whatsapp_bot import CHATBOT_SYSTEM_PROMPT
+
+    return {
+        "system_prompt": get_whatsapp_prompt(),
+        "default_prompt": CHATBOT_SYSTEM_PROMPT,
+        "model": get_whatsapp_model(),
+        "available_models": list_models(),
+    }
+
+
+@app.post("/settings/chatbot")
+def update_chatbot_route(req: PromptRequest) -> dict:
+    return {"system_prompt": save_whatsapp_prompt(req.system_prompt)}
+
+
+@app.post("/settings/chatbot/reset")
+def reset_chatbot_route() -> dict:
+    return {"system_prompt": reset_whatsapp_prompt()}
+
+
+class ChatbotTestRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+    phone_number: str = "test-preview"
+
+
+@app.post("/settings/chatbot/test")
+def test_chatbot_route(req: ChatbotTestRequest) -> dict:
+    """Preview what the bot would reply, without sending anything or
+    touching the real contact record."""
+    from .whatsapp_bot import _build_system_prompt, _call_ollama_chat
+
+    try:
+        messages = [
+            {"role": "system", "content": _build_system_prompt(None)},
+            {"role": "user", "content": req.message},
+        ]
+        reply = _call_ollama_chat(messages)
+        return {"ok": True, "reply": reply}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
 @app.get("/settings/company")

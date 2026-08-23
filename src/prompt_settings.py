@@ -5,6 +5,7 @@ from . import config, db
 SETTINGS_KEY = "prompt"
 MODEL_KEY = "ollama_model"
 WHATSAPP_MODEL_KEY = "whatsapp_ollama_model"
+WHATSAPP_PROMPT_KEY = "whatsapp_prompt"
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are writing a short, personalized cold outreach email on behalf of "
@@ -207,3 +208,38 @@ def save_whatsapp_model(model: str) -> str:
             (WHATSAPP_MODEL_KEY, json.dumps({"model": model})),
         )
     return model
+
+
+def get_whatsapp_prompt() -> str:
+    from .whatsapp_bot import CHATBOT_SYSTEM_PROMPT
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (WHATSAPP_PROMPT_KEY,)
+        ).fetchone()
+    if row:
+        prompt = json.loads(row["value"]).get("system_prompt")
+        if prompt:
+            return prompt
+    return CHATBOT_SYSTEM_PROMPT
+
+
+def save_whatsapp_prompt(prompt: str) -> str:
+    from .whatsapp_bot import CHATBOT_SYSTEM_PROMPT
+
+    prompt = prompt.strip() or CHATBOT_SYSTEM_PROMPT
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (WHATSAPP_PROMPT_KEY, json.dumps({"system_prompt": prompt})),
+        )
+    return prompt
+
+
+def reset_whatsapp_prompt() -> str:
+    from .whatsapp_bot import CHATBOT_SYSTEM_PROMPT
+
+    with db.connect() as conn:
+        conn.execute("DELETE FROM settings WHERE key = ?", (WHATSAPP_PROMPT_KEY,))
+    return CHATBOT_SYSTEM_PROMPT

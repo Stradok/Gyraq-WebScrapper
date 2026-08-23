@@ -444,6 +444,7 @@
         <option value="sec-jobs">Jobs</option>
         <option value="sec-drafts">Drafted emails</option>
         <option value="sec-sent">Sent emails</option>
+        <option value="sec-chatbot">WhatsApp chatbot</option>
         <option value="sec-contacts">WhatsApp contacts</option>
         <option value="sec-data">Scraped data</option>
       </select>
@@ -554,10 +555,6 @@
       <select id="modelSelect" class="nav-select" style="flex:1"></select>
     </div>
 
-    <p class="meta" style="margin-bottom:6px">WhatsApp chatbot model — replies to inbound DMs. Needs strong Roman Urdu handling; qwen models tested noticeably better than gemma3 for this specifically.</p>
-    <div class="row" style="margin-bottom:14px">
-      <select id="whatsappModelSelect" class="nav-select" style="flex:1"></select>
-    </div>
 
     <p class="meta" style="margin-bottom:10px">
       Instructions — what the LLM searches for, what services it offers, and how it writes each email.
@@ -613,6 +610,38 @@
   <section id="sec-sent">
     <h2>Sent emails</h2>
     <div id="sentTableWrap" class="table-wrap"><div id="sentTable" class="empty">Loading…</div></div>
+  </section>
+
+  <section id="sec-chatbot">
+    <h2>WhatsApp chatbot</h2>
+    <p class="meta" style="margin-bottom:10px">
+      Auto-replies to anyone who DMs your WhatsApp Business number, in English or Roman Urdu.
+      Replying to an inbound message doesn't need a Meta-approved template, so this works as soon as
+      WhatsApp is connected under Connections.
+    </p>
+
+    <p class="meta" style="margin-bottom:6px">Model — needs strong Roman Urdu handling. Tested here: qwen3:8b handles it well; gemma3:12b replies in English regardless; qwen2.5:3b-instruct is fastest but drops Roman Urdu.</p>
+    <div class="row" style="margin-bottom:14px">
+      <select id="whatsappModelSelect" class="nav-select" style="flex:1"></select>
+    </div>
+
+    <p class="meta" style="margin-bottom:6px">
+      Instructions — what the bot knows about Gyraq, how it talks, and what it should never make up.
+      Contact context (business name, prior pitch, email) is added automatically when we can match the number.
+    </p>
+    <textarea id="chatbotPrompt" rows="14" style="width:100%"></textarea>
+    <div class="btn-row">
+      <button id="chatbotSaveBtn">Save instructions</button>
+      <button class="btn-secondary" id="chatbotResetBtn">Reset to default</button>
+    </div>
+    <div class="status-line" id="chatbotStatus"></div>
+
+    <p class="meta" style="margin:14px 0 6px">Try it — see what the bot would reply, without sending anything.</p>
+    <div class="row">
+      <input type="text" id="chatbotTestInput" placeholder="e.g. salam bhai, price kitna hai?" style="flex:1">
+      <button id="chatbotTestBtn">Test reply</button>
+    </div>
+    <div id="chatbotTestOut" style="margin-top:10px"></div>
   </section>
 
   <section id="sec-contacts">
@@ -1386,16 +1415,8 @@ async function loadPrompt() {
   select.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
   select.value = data.model;
 
-  const waModels = data.available_models && data.available_models.length
-    ? data.available_models
-    : [data.whatsapp_model];
-  const waSelect = $('whatsappModelSelect');
-  waSelect.innerHTML = waModels.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
-  waSelect.value = data.whatsapp_model;
-
   if (!data.available_models || !data.available_models.length) {
     select.title = "Couldn't reach Ollama to list models - showing the currently configured one only.";
-    waSelect.title = select.title;
   }
 }
 
@@ -1410,6 +1431,22 @@ async function onModelChange() {
   $('promptStatus').className = 'status-line ok';
 }
 
+async function loadChatbot() {
+  const res = await apiFetch('/settings/chatbot');
+  const data = await res.json();
+  $('chatbotPrompt').value = data.system_prompt;
+
+  const models = data.available_models && data.available_models.length
+    ? data.available_models
+    : [data.model];
+  const sel = $('whatsappModelSelect');
+  sel.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  sel.value = data.model;
+  if (!data.available_models || !data.available_models.length) {
+    sel.title = "Couldn't reach Ollama to list models - showing the currently configured one only.";
+  }
+}
+
 async function onWhatsappModelChange() {
   const model = $('whatsappModelSelect').value;
   await apiFetch('/settings/prompt/whatsapp-model', {
@@ -1417,9 +1454,60 @@ async function onWhatsappModelChange() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model }),
   });
-  $('promptStatus').textContent = `WhatsApp chatbot model set to ${model}.`;
-  $('promptStatus').className = 'status-line ok';
+  $('chatbotStatus').textContent = `Model set to ${model}.`;
+  $('chatbotStatus').className = 'status-line ok';
 }
+
+async function saveChatbotPrompt() {
+  $('chatbotSaveBtn').disabled = true;
+  try {
+    await apiFetch('/settings/chatbot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system_prompt: $('chatbotPrompt').value }),
+    });
+    $('chatbotStatus').textContent = 'Chatbot instructions saved.';
+    $('chatbotStatus').className = 'status-line ok';
+  } finally {
+    $('chatbotSaveBtn').disabled = false;
+  }
+}
+
+async function resetChatbotPrompt() {
+  if (!confirm('Reset chatbot instructions to the default?')) return;
+  const res = await apiFetch('/settings/chatbot/reset', { method: 'POST' });
+  const data = await res.json();
+  $('chatbotPrompt').value = data.system_prompt;
+  $('chatbotStatus').textContent = 'Reset to default.';
+  $('chatbotStatus').className = 'status-line ok';
+}
+
+async function testChatbot() {
+  const message = $('chatbotTestInput').value.trim();
+  if (!message) return;
+  $('chatbotTestBtn').disabled = true;
+  $('chatbotTestOut').innerHTML = '<div class="meta">Thinking…</div>';
+  try {
+    const res = await apiFetch('/settings/chatbot/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    const data = await res.json();
+    $('chatbotTestOut').innerHTML = data.ok
+      ? `<div class="thread"><div class="thread-msg in">${escapeHtml(message)}</div><div class="thread-msg out">${escapeHtml(data.reply || '(empty reply)')}</div></div>`
+      : `<div class="status-line bad">${escapeHtml(data.error)}</div>`;
+  } finally {
+    $('chatbotTestBtn').disabled = false;
+  }
+}
+
+$('chatbotSaveBtn').addEventListener('click', saveChatbotPrompt);
+$('chatbotResetBtn').addEventListener('click', resetChatbotPrompt);
+$('chatbotTestBtn').addEventListener('click', testChatbot);
+$('chatbotTestInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') testChatbot();
+});
 
 async function loadCompanyProfile() {
   const res = await apiFetch('/settings/company');
@@ -1547,6 +1635,7 @@ function refreshAll() {
   loadMailSettings();
   loadWhatsAppSettings();
   loadPrompt();
+  loadChatbot();
   loadCompanyProfile();
   setupRemoteAccess();
 }
