@@ -1,8 +1,14 @@
-- query: bakeries in Portland, OR
-  max_results: 5
-  status: done
-  started_at: '2026-08-15T10:05:20.651583+00:00'
-  result_count: 5
-  csv_path: /app/data/results/bakeries_in_portland_or_20260815T100601Z.csv
-  json_path: /app/data/results/bakeries_in_portland_or_20260815T100601Z.json
-  finished_at: '2026-08-15T10:06:01.340326+00:00'
+# Add one entry per search you want scraped. The scraper watches this file
+# while it's running - just save it and a new "pending" entry gets picked up
+# within POLL_INTERVAL_SECONDS. You can also trigger scrapes over HTTP -
+# see "Using it from n8n" in the README.
+#
+# Fields:
+#   query        - required. What you'd type into Google Maps search.
+#   max_results  - optional, default 60. Roughly how many listings to pull.
+#   status       - managed by the scraper: pending -> running -> done | error.
+#                  Leave it out (or delete it) to re-run a query.
+#
+# Example (uncomment to try it):
+# - query: "coffee shops in Austin, TX"
+#   max_results: 40

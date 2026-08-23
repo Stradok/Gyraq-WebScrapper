@@ -1,15 +1,30 @@
+import os
+
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import config
+from .drafts_store import list_drafts as _list_drafts
+from .drafts_store import save_draft
 from .jobs import Job, job_store
 
 app = FastAPI(title="Maps Scraper API")
+
+WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
 
 
 class ScrapeRequest(BaseModel):
     query: str = Field(..., min_length=1)
     max_results: int = Field(default=config.DEFAULT_MAX_RESULTS, ge=1, le=500)
+
+
+class DraftRequest(BaseModel):
+    to: str = Field(..., min_length=1)
+    subject: str = Field(..., min_length=1)
+    body: str = Field(..., min_length=1)
+    business_name: str | None = None
+    pitch: str | None = None
 
 
 def _summary(job: Job) -> dict:
@@ -56,3 +71,18 @@ def get_job(job_id: str) -> dict:
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     return _full(job)
+
+
+@app.post("/drafts")
+def create_draft(req: DraftRequest) -> dict:
+    record = save_draft(req.to, req.subject, req.body, req.business_name, req.pitch)
+    return {"status": "saved", **record}
+
+
+@app.get("/drafts")
+def list_drafts() -> list[dict]:
+    return _list_drafts()
+
+
+# Mounted last so it never shadows the API routes above.
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

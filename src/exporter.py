@@ -15,6 +15,7 @@ CSV_FIELDS = [
     "address",
     "phone",
     "website",
+    "email",
     "hours",
     "latitude",
     "longitude",

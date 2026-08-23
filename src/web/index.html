@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gyraq Lead Scraper</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #262a34;
+    --text: #e6e8ec;
+    --muted: #8b909c;
+    --accent: #4f8cff;
+    --ok: #35c37b;
+    --warn: #e6a23c;
+    --err: #e5484d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 20px 16px 8px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header h1 {
+    font-size: 20px;
+    margin: 0 0 2px;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 12px 16px 60px;
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  section h2 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type=text], input[type=number] {
+    background: #0d0f13;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  input[type=text] { flex: 1 1 200px; min-width: 0; }
+  input[type=number] { width: 90px; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .item {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .item:last-child { margin-bottom: 0; }
+  .item-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .item-title { font-weight: 600; }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge.done, .badge.saved { background: rgba(53,195,123,0.15); color: var(--ok); }
+  .badge.running, .badge.queued { background: rgba(230,162,60,0.15); color: var(--warn); }
+  .badge.error { background: rgba(229,72,77,0.15); color: var(--err); }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 12px; color: var(--accent); }
+  pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: 13px;
+    background: #0d0f13;
+    padding: 10px;
+    border-radius: 8px;
+    margin: 8px 0 0;
+  }
+  .refresh-note { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gyraq Lead Scraper</h1>
+  <p>Local business search, deduplicated leads, AI-drafted outreach — all running on this machine.</p>
+</header>
+<main>
+  <section>
+    <h2>New search</h2>
+    <div class="row">
+      <input type="text" id="query" placeholder="e.g. dental clinics in Islamabad">
+      <input type="number" id="maxResults" value="20" min="1" max="500">
+      <button id="scrapeBtn">Scrape</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Jobs</h2>
+    <div id="jobs" class="empty">Loading…</div>
+  </section>
+
+  <section>
+    <h2>Drafted emails</h2>
+    <div id="drafts" class="empty">Loading…</div>
+  </section>
+
+  <p class="refresh-note">Auto-refreshes every 4s</p>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function scrape() {
+  const query = $('query').value.trim();
+  const maxResults = parseInt($('maxResults').value, 10) || 20;
+  if (!query) return;
+  $('scrapeBtn').disabled = true;
+  try {
+    await fetch('/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, max_results: maxResults })
+    });
+    $('query').value = '';
+    await refreshJobs();
+  } finally {
+    $('scrapeBtn').disabled = false;
+  }
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  return Math.floor(s / 3600) + 'h ago';
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+async function refreshJobs() {
+  const res = await fetch('/jobs');
+  const jobs = await res.json();
+  const el = $('jobs');
+  if (!jobs.length) {
+    el.className = 'empty';
+    el.textContent = 'No searches yet — start one above.';
+    return;
+  }
+  el.className = '';
+  el.innerHTML = jobs.slice().reverse().map(j => `
+    <div class="item">
+      <div class="item-top">
+        <span class="item-title">${escapeHtml(j.query)}</span>
+        <span class="badge ${j.status}">${j.status}</span>
+      </div>
+      <div class="meta">
+        ${j.result_count != null ? j.result_count + ' result(s) · ' : ''}${timeAgo(j.created_at)}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function refreshDrafts() {
+  const res = await fetch('/drafts');
+  const drafts = await res.json();
+  const el = $('drafts');
+  if (!drafts.length) {
+    el.className = 'empty';
+    el.textContent = 'No drafts yet.';
+    return;
+  }
+  el.className = '';
+  el.innerHTML = drafts.slice().reverse().map(d => `
+    <div class="item">
+      <div class="item-top">
+        <span class="item-title">${escapeHtml(d.business_name || d.to)}</span>
+        <span class="badge saved">${escapeHtml(d.pitch || '')}</span>
+      </div>
+      <div class="meta">To: ${escapeHtml(d.to)} · ${timeAgo(d.created_at)}</div>
+      <details>
+        <summary>${escapeHtml(d.subject)}</summary>
+        <pre>${escapeHtml(d.body)}</pre>
+      </details>
+    </div>
+  `).join('');
+}
+
+$('scrapeBtn').addEventListener('click', scrape);
+$('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') scrape(); });
+
+refreshJobs();
+refreshDrafts();
+setInterval(refreshJobs, 4000);
+setInterval(refreshDrafts, 4000);
+</script>
+</body>
+</html>

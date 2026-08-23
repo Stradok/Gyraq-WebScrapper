@@ -11,9 +11,16 @@ services:
       DELAY_BETWEEN_QUERIES_MIN: "20"
       DELAY_BETWEEN_QUERIES_MAX: "60"
       REVIEWS_PER_BUSINESS: "5"
+      SCRAPE_EMAILS: "true"
+      GENERATE_PITCHES: "true"
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: gemma3:12b
+      COMPANY_ADDRESS: "[YOUR BUSINESS ADDRESS HERE]"
       HEADLESS: "true"
       LOG_LEVEL: INFO
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     volumes:
       - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

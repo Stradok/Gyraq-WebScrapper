@@ -19,6 +19,7 @@ class Business:
     address: str | None = None
     phone: str | None = None
     website: str | None = None
+    email: str | None = None
     hours: str | None = None
     latitude: float | None = None
     longitude: float | None = None

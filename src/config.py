@@ -28,3 +28,14 @@ API_PORT = int(os.environ.get("API_PORT", "8080"))
 
 SKIP_ALREADY_SEEN = _bool("SKIP_ALREADY_SEEN", True)
 SEEN_STORE_FILE = os.environ.get("SEEN_STORE_FILE", "data/seen_places.txt")
+
+SCRAPE_EMAILS = _bool("SCRAPE_EMAILS", False)
+EMAIL_FETCH_TIMEOUT_MS = int(os.environ.get("EMAIL_FETCH_TIMEOUT_MS", "12000"))
+
+DRAFTS_FILE = os.environ.get("DRAFTS_FILE", "data/drafts.jsonl")
+
+GENERATE_PITCHES = _bool("GENERATE_PITCHES", False)
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:12b")
+OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT_S", "120"))
+COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "[YOUR BUSINESS ADDRESS HERE]")

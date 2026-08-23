@@ -7,3 +7,4 @@ venv/
 data/results/*
 !data/results/.gitkeep
 data/seen_places.txt
+data/drafts.jsonl

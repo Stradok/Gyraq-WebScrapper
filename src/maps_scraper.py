@@ -7,7 +7,10 @@ from urllib.parse import quote
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
 from . import config
+from .drafts_store import save_draft
+from .email_finder import find_email
 from .models import Business, Review
+from .pitch_writer import generate_pitch
 from .seen_store import SeenStore, extract_place_id
 
 log = logging.getLogger(__name__)
@@ -245,9 +248,19 @@ class MapsScraper:
         website_href = _safe_attr(page, 'a[data-item-id="authority"]', "href")
         biz.website = website_href
 
+        if config.SCRAPE_EMAILS and biz.website:
+            biz.email = find_email(self.context, biz.website, config.EMAIL_FETCH_TIMEOUT_MS)
+
         biz.hours = self._extract_hours()
 
         biz.reviews = self._extract_reviews(config.REVIEWS_PER_BUSINESS)
+
+        if config.GENERATE_PITCHES and biz.email:
+            pitch = generate_pitch(biz)
+            if pitch:
+                save_draft(biz.email, pitch["subject"], pitch["body"], biz.name, pitch["pitch"])
+                log.info("Drafted %r pitch for %r -> %s", pitch["pitch"], biz.name, biz.email)
+
         return biz
 
     def _extract_hours(self) -> str | None:

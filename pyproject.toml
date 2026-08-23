@@ -1,0 +1,14 @@
+[project]
+name = "gyraq-webscrapper"
+version = "0.1.0"
+description = "Google Maps local business scraper with lead enrichment and AI-drafted outreach"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright==1.62.0",
+    "PyYAML==6.0.2",
+    "fastapi==0.141.1",
+    "uvicorn==0.52.3",
+]
+
+[tool.uv]
+package = false
