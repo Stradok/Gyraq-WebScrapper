@@ -312,6 +312,8 @@
     white-space: nowrap;
   }
   table.data-table th { color: var(--muted); font-weight: 600; }
+  table.data-table th.sortable { cursor: pointer; user-select: none; }
+  table.data-table th.sortable:hover { color: var(--text); }
   table.data-table tr.clickable-row { cursor: pointer; }
   table.data-table tr.clickable-row:hover td { background: rgba(79,140,255,0.08); }
   .table-wrap { overflow-x: auto; }
@@ -625,12 +627,11 @@
 
   <section id="sec-data">
     <h2>Scraped data</h2>
-    <div id="resultFiles" class="empty">Loading…</div>
+    <input type="text" id="resultFilesSearch" placeholder="Search past searches by query…" style="width:100%;margin-bottom:10px">
+    <div id="resultFilesWrap" class="table-wrap"><div id="resultFiles" class="empty">Loading…</div></div>
     <div id="resultViewer" class="table-wrap" style="margin-top:10px"></div>
     <div id="businessDetail" style="margin-top:10px"></div>
   </section>
-
-  <p class="refresh-note">Auto-refreshes every 4s</p>
 </main>
 
 <script>
@@ -759,6 +760,12 @@ async function scrape() {
 
 function timeAgo(iso) {
   if (!iso) return '';
+  // Result-file timestamps are compact ("20260823T165426Z", from the
+  // export filename format) which Date() can't parse - reformat to ISO.
+  const compact = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(iso);
+  if (compact) {
+    iso = `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`;
+  }
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s / 60) + 'm ago';
@@ -1106,26 +1113,77 @@ async function refreshStats() {
   $('stFailed').textContent = s.drafts_failed;
 }
 
+let lastResultFiles = [];
+let resultFilesSort = { col: 'scraped_at', dir: -1 };
+
 async function refreshResultFiles() {
   const res = await apiFetch('/results');
-  const files = await res.json();
+  lastResultFiles = await res.json();
+  renderResultFiles();
+}
+
+function renderResultFiles() {
+  const q = $('resultFilesSearch').value.trim().toLowerCase();
+  let files = q
+    ? lastResultFiles.filter(f => (f.query || f.file).toLowerCase().includes(q))
+    : lastResultFiles.slice();
+
+  const { col, dir } = resultFilesSort;
+  files.sort((a, b) => {
+    const av = a[col], bv = b[col];
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+
   const el = $('resultFiles');
   if (!files.length) {
     el.className = 'empty';
-    el.textContent = 'No scraped data yet.';
+    el.textContent = lastResultFiles.length ? 'No searches match that filter.' : 'No scraped data yet.';
     return;
   }
   el.className = '';
-  el.innerHTML = files.map(f => `
-    <div class="file-list-item" data-file="${escapeHtml(f.file)}">
-      <span>${escapeHtml(f.query || f.file)}</span>
-      <span class="meta">${f.count != null ? f.count + ' result(s)' : ''}</span>
-    </div>
-  `).join('');
-  el.querySelectorAll('.file-list-item').forEach(row => {
+  const arrow = (c) => (resultFilesSort.col === c ? (resultFilesSort.dir === 1 ? ' ▲' : ' ▼') : '');
+  el.innerHTML = `
+    <table class="data-table">
+      <thead><tr>
+        <th class="sortable" data-col="query">Query${arrow('query')}</th>
+        <th class="sortable" data-col="scraped_at">Date${arrow('scraped_at')}</th>
+        <th class="sortable" data-col="count">Businesses${arrow('count')}</th>
+      </tr></thead>
+      <tbody>
+        ${files.map(f => `
+          <tr class="clickable-row" data-file="${escapeHtml(f.file)}">
+            <td>${escapeHtml(f.query || f.file)}</td>
+            <td>${timeAgo(f.scraped_at)}</td>
+            <td>${f.count != null ? f.count : ''}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  el.querySelectorAll('tr[data-file]').forEach(row => {
     row.addEventListener('click', () => viewResultFile(row.dataset.file));
   });
 }
+
+$('resultFiles').addEventListener('click', (e) => {
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  const col = th.dataset.col;
+  if (resultFilesSort.col === col) {
+    resultFilesSort.dir *= -1;
+  } else {
+    resultFilesSort = { col, dir: 1 };
+  }
+  renderResultFiles();
+});
+
+let resultFilesSearchTimer = null;
+$('resultFilesSearch').addEventListener('input', () => {
+  clearTimeout(resultFilesSearchTimer);
+  resultFilesSearchTimer = setTimeout(renderResultFiles, 250);
+});
 
 let currentResultRows = [];
 
