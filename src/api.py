@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -8,10 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import config
+from . import config, job_control
 from .auth import get_or_create_token, verify_token
 from .company_profile import get_company_profile, save_company_profile
-from .drafts_store import get_draft, list_drafts as _list_drafts
+from .drafts_store import delete_draft, get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft
 from .jobs import Job, job_store
 from .live_view import get_frame
@@ -179,6 +180,65 @@ def get_job(job_id: str) -> dict:
     return _full(job)
 
 
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> dict:
+    job = job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status not in ("queued", "running", "paused"):
+        return {"ok": False, "detail": f"job is already {job.status}"}
+    if job.status == "queued":
+        # Never started - nothing for job_control to signal, just mark it.
+        job_store.update(
+            job_id, status="cancelled", finished_at=datetime.now(timezone.utc).isoformat()
+        )
+    else:
+        # request_cancel() also clears the pause flag, so a paused job's
+        # loop wakes up and notices the cancel instead of staying stuck.
+        job_control.request_cancel(job_id)
+    return {"ok": True}
+
+
+@app.post("/jobs/{job_id}/pause")
+def pause_job(job_id: str) -> dict:
+    job = job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status != "running":
+        return {"ok": False, "detail": "job is not running"}
+    job_control.request_pause(job_id)
+    job_store.update(job_id, status="paused")
+    return {"ok": True}
+
+
+@app.post("/jobs/{job_id}/resume")
+def resume_job(job_id: str) -> dict:
+    job = job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status != "paused":
+        return {"ok": False, "detail": "job is not paused"}
+    job_control.request_resume(job_id)
+    job_store.update(job_id, status="running")
+    return {"ok": True}
+
+
+@app.delete("/jobs/{job_id}")
+def delete_job(job_id: str) -> dict:
+    job = job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status in ("queued", "running", "paused"):
+        raise HTTPException(status_code=409, detail="stop the job before deleting it")
+    job_store.delete(job_id)
+    return {"ok": True}
+
+
+@app.post("/jobs/clear")
+def clear_finished_jobs() -> dict:
+    return {"cleared": job_store.clear_finished()}
+
+
 @app.post("/drafts")
 def create_draft(req: DraftRequest) -> dict:
     record = save_draft(req.to, req.subject, req.body, req.business_name, req.pitch)
@@ -188,6 +248,14 @@ def create_draft(req: DraftRequest) -> dict:
 @app.get("/drafts")
 def list_drafts() -> list[dict]:
     return _list_drafts()
+
+
+@app.delete("/drafts/{draft_id}")
+def delete_draft_route(draft_id: int) -> dict:
+    if get_draft(draft_id) is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    delete_draft(draft_id)
+    return {"ok": True}
 
 
 @app.get("/live")

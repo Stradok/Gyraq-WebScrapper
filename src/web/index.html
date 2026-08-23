@@ -226,6 +226,15 @@
   .draft-actions { display: flex; gap: 8px; margin-bottom: 10px; }
   .draft-actions button { font-size: 12px; padding: 7px 12px; }
   .draft-checkbox { margin-right: 8px; }
+  .item-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .item-actions button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+  .item-actions button.danger { color: var(--err); border-color: var(--err); }
   .badge.sent { background: rgba(53,195,123,0.15); color: var(--ok); }
   .badge.pending { background: rgba(230,162,60,0.15); color: var(--warn); }
   .badge.failed { background: rgba(229,72,77,0.15); color: var(--err); }
@@ -501,6 +510,9 @@
 
   <section id="sec-jobs">
     <h2>Jobs</h2>
+    <div class="draft-actions">
+      <button class="btn-secondary" id="clearJobsBtn">Clear finished</button>
+    </div>
     <div id="jobs" class="empty">Loading…</div>
   </section>
 
@@ -623,7 +635,7 @@ async function refreshLive() {
   try {
     const res = await apiFetch('/live?t=' + Date.now(), { cache: 'no-store' });
     if (res.status === 204) {
-      $('liveSection').hidden = true;
+      $('sec-live').hidden = true;
       return;
     }
     const blob = await res.blob();
@@ -631,7 +643,7 @@ async function refreshLive() {
     $('liveImg').src = url;
     if (lastLiveUrl) URL.revokeObjectURL(lastLiveUrl);
     lastLiveUrl = url;
-    $('liveSection').hidden = false;
+    $('sec-live').hidden = false;
   } catch (e) { /* ignore */ }
 }
 
@@ -667,6 +679,16 @@ function escapeHtml(s) {
   }[c]));
 }
 
+function jobActionButtons(j) {
+  const btn = (action, label, cls) =>
+    `<button data-action="${action}" data-id="${j.job_id}" class="${cls || ''}">${label}</button>`;
+  if (j.status === 'queued') return btn('cancel', 'Stop', 'danger');
+  if (j.status === 'running') return btn('pause', 'Pause') + btn('cancel', 'Stop', 'danger');
+  if (j.status === 'paused') return btn('resume', 'Resume') + btn('cancel', 'Stop', 'danger');
+  if (['done', 'error', 'cancelled'].includes(j.status)) return btn('delete', 'Delete', 'danger');
+  return '';
+}
+
 async function refreshJobs() {
   const res = await apiFetch('/jobs');
   const jobs = await res.json();
@@ -686,9 +708,29 @@ async function refreshJobs() {
       <div class="meta">
         ${j.result_count != null ? j.result_count + ' result(s) · ' : ''}${timeAgo(j.created_at)}
       </div>
+      <div class="item-actions">${jobActionButtons(j)}</div>
     </div>
   `).join('');
 }
+
+$('jobs').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const { action, id } = btn.dataset;
+  if (action === 'delete' && !confirm('Delete this job? This cannot be undone.')) return;
+  btn.disabled = true;
+  try {
+    const method = action === 'delete' ? 'DELETE' : 'POST';
+    const path = action === 'delete' ? `/jobs/${id}` : `/jobs/${id}/${action}`;
+    await apiFetch(path, { method });
+    await refreshJobs();
+  } catch (err) { /* auth gate already shown by apiFetch if needed */ }
+});
+
+$('clearJobsBtn').addEventListener('click', async () => {
+  await apiFetch('/jobs/clear', { method: 'POST' });
+  await refreshJobs();
+});
 
 async function refreshDrafts() {
   const res = await apiFetch('/drafts');
@@ -717,9 +759,23 @@ async function refreshDrafts() {
         <summary>${escapeHtml(d.subject)}</summary>
         <pre>${escapeHtml(d.body)}</pre>
       </details>
+      <div class="item-actions">
+        <button data-action="delete-draft" data-id="${d.id}" class="danger">Delete</button>
+      </div>
     </div>
   `).join('');
 }
+
+$('drafts').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action="delete-draft"]');
+  if (!btn) return;
+  if (!confirm('Delete this draft? This cannot be undone.')) return;
+  btn.disabled = true;
+  try {
+    await apiFetch(`/drafts/${btn.dataset.id}`, { method: 'DELETE' });
+    await refreshDrafts();
+  } catch (err) { /* auth gate already shown by apiFetch if needed */ }
+});
 
 async function refreshSentEmails() {
   const res = await apiFetch('/drafts');

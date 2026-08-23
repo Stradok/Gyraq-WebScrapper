@@ -72,3 +72,9 @@ def mark_failed(draft_id: int, error: str) -> None:
         conn.execute(
             "UPDATE drafts SET status = 'failed', error = ? WHERE id = ?", (error, draft_id)
         )
+
+
+def delete_draft(draft_id: int) -> bool:
+    with db.connect() as conn:
+        cur = conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
+    return cur.rowcount > 0

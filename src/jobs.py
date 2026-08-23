@@ -88,5 +88,20 @@ class JobStore:
         with db.connect() as conn:
             conn.execute(f"UPDATE jobs SET {', '.join(columns)} WHERE id = ?", values)
 
+    def delete(self, job_id: str) -> bool:
+        with db.connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM jobs WHERE id = ? AND status NOT IN ('queued', 'running')",
+                (job_id,),
+            )
+        return cur.rowcount > 0
+
+    def clear_finished(self) -> int:
+        with db.connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM jobs WHERE status IN ('done', 'error', 'cancelled')"
+            )
+        return cur.rowcount
+
 
 job_store = JobStore()

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import yaml
 
-from . import config
+from . import config, job_control
 from .exporter import write_results
 from .jobs import job_store
 from .maps_scraper import MapsScraper
@@ -89,25 +89,36 @@ def _process_api_job(scraper: MapsScraper, job_id: str) -> None:
     job = job_store.get(job_id)
     if job is None:
         return
+    if job.status == "cancelled":
+        # Stopped via the API while it was still sitting in the queue,
+        # before ever starting - nothing to do.
+        return
 
     log.info("Starting API job %s: %r (max_results=%d)", job_id, job.query, job.max_results)
     job_store.update(job_id, status="running", started_at=_now())
+    control = job_control.register(job_id)
     try:
-        businesses = scraper.search(job.query, job.max_results)
+        businesses = scraper.search(job.query, job.max_results, control=control)
+        cancelled = control.cancel.is_set()
         csv_path, json_path = write_results(job.query, businesses, config.RESULTS_DIR)
         job_store.update(
             job_id,
-            status="done",
+            status="cancelled" if cancelled else "done",
             result_count=len(businesses),
             results=[b.to_dict() for b in businesses],
             csv_path=csv_path,
             json_path=json_path,
             finished_at=_now(),
         )
-        log.info("Finished API job %s: %d results -> %s", job_id, len(businesses), csv_path)
+        if cancelled:
+            log.info("API job %s stopped: kept %d result(s) -> %s", job_id, len(businesses), csv_path)
+        else:
+            log.info("Finished API job %s: %d results -> %s", job_id, len(businesses), csv_path)
     except Exception as exc:
         log.exception("API job %s (%r) failed", job_id, job.query)
         job_store.update(job_id, status="error", error=str(exc), finished_at=_now())
+    finally:
+        job_control.unregister(job_id)
 
 
 def _process_file_entry(scraper: MapsScraper, entry: dict, entries: list[dict]) -> None:

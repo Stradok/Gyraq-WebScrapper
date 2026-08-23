@@ -113,7 +113,7 @@ class MapsScraper:
         except Exception:
             pass
 
-    def search(self, query: str, max_results: int) -> list[Business]:
+    def search(self, query: str, max_results: int, control=None) -> list[Business]:
         page = self.page
         url = f"https://www.google.com/maps/search/{quote(query)}?hl=en"
         log.info("Navigating to search: %s", url)
@@ -144,6 +144,18 @@ class MapsScraper:
 
         businesses: list[Business] = []
         for i, (name_hint, href) in enumerate(listings[:max_results]):
+            if control is not None:
+                if control.paused.is_set():
+                    log.info("Job paused after %d/%d businesses", len(businesses), len(listings))
+                while control.paused.is_set() and not control.cancel.is_set():
+                    time.sleep(1)
+                if control.cancel.is_set():
+                    log.info(
+                        "Job stopped: keeping %d/%d businesses already collected",
+                        len(businesses),
+                        len(listings),
+                    )
+                    break
             log.info("[%d/%d] %s", i + 1, min(len(listings), max_results), name_hint or href)
             try:
                 page.goto(href, wait_until="domcontentloaded")

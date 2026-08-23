@@ -85,11 +85,13 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             )
             """
         )
-        # Any job still marked "running" from a previous process (e.g. the
-        # container was restarted mid-scrape) is orphaned - it will never
-        # get its status updated, so mark it as errored instead of stuck.
+        # Any job still marked "running" or "paused" from a previous process
+        # (e.g. the container was restarted mid-scrape, or while paused) is
+        # orphaned - its in-memory pause/cancel controls are gone with the
+        # old process, so it will never resume or get its status updated.
+        # Mark it errored instead of leaving it stuck.
         conn.execute(
             "UPDATE jobs SET status = 'error', error = 'interrupted by restart' "
-            "WHERE status = 'running'"
+            "WHERE status IN ('running', 'paused')"
         )
         conn.commit()
