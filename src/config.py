@@ -32,7 +32,7 @@ SEEN_STORE_FILE = os.environ.get("SEEN_STORE_FILE", "data/seen_places.txt")
 SCRAPE_EMAILS = _bool("SCRAPE_EMAILS", False)
 EMAIL_FETCH_TIMEOUT_MS = int(os.environ.get("EMAIL_FETCH_TIMEOUT_MS", "12000"))
 
-DRAFTS_FILE = os.environ.get("DRAFTS_FILE", "data/drafts.jsonl")
+DB_FILE = os.environ.get("DB_FILE", "data/app.db")
 
 GENERATE_PITCHES = _bool("GENERATE_PITCHES", False)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")

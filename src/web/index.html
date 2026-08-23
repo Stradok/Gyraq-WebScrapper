@@ -66,7 +66,7 @@
     margin: 0 0 12px;
   }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  input[type=text], input[type=number] {
+  input[type=text], input[type=number], input[type=password] {
     background: #0d0f13;
     border: 1px solid var(--border);
     color: var(--text);
@@ -154,6 +154,92 @@
     width: 100%;
     height: auto;
   }
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px;
+  }
+  .stat-tile {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .stat-tile .n { font-size: 22px; font-weight: 700; }
+  .stat-tile .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tab-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .field-grid label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .field-grid input[type=text], .field-grid input[type=password], .field-grid input[type=number] {
+    width: 100%;
+  }
+  .field-full { grid-column: 1 / -1; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .btn-secondary {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .status-line { font-size: 12px; margin-top: 8px; min-height: 16px; }
+  .status-line.ok { color: var(--ok); }
+  .status-line.bad { color: var(--err); }
+  .preset-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .preset-btn {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+  .draft-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+  .draft-actions button { font-size: 12px; padding: 7px 12px; }
+  .draft-checkbox { margin-right: 8px; }
+  .badge.sent { background: rgba(53,195,123,0.15); color: var(--ok); }
+  .badge.pending { background: rgba(230,162,60,0.15); color: var(--warn); }
+  .badge.failed { background: rgba(229,72,77,0.15); color: var(--err); }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.data-table th, table.data-table td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+  }
+  table.data-table th { color: var(--muted); font-weight: 600; }
+  .table-wrap { overflow-x: auto; }
+  .file-list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 4px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .file-list-item:last-child { border-bottom: none; }
 </style>
 </head>
 <body>
@@ -167,6 +253,17 @@
   </div>
 </header>
 <main>
+  <section>
+    <h2>Overview</h2>
+    <div class="stats-row" id="statsRow">
+      <div class="stat-tile"><div class="n" id="stJobs">–</div><div class="l">Searches</div></div>
+      <div class="stat-tile"><div class="n" id="stBiz">–</div><div class="l">Businesses</div></div>
+      <div class="stat-tile"><div class="n" id="stPending">–</div><div class="l">Drafts pending</div></div>
+      <div class="stat-tile"><div class="n" id="stSent">–</div><div class="l">Emails sent</div></div>
+      <div class="stat-tile"><div class="n" id="stFailed">–</div><div class="l">Send failed</div></div>
+    </div>
+  </section>
+
   <section>
     <h2>New search</h2>
     <div class="row">
@@ -184,13 +281,80 @@
   </section>
 
   <section>
+    <h2>Connections</h2>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="mailTab">Email</button>
+      <button class="tab-btn" data-tab="waTab">WhatsApp</button>
+    </div>
+
+    <div id="mailTab" class="tab-panel active">
+      <div class="preset-row">
+        <button class="preset-btn" data-preset="gmail">Gmail</button>
+        <button class="preset-btn" data-preset="outlook">Outlook / Office365</button>
+        <button class="preset-btn" data-preset="custom">Custom</button>
+      </div>
+      <div class="field-grid">
+        <div><label>From name</label><input type="text" id="mFromName"></div>
+        <div><label>From email</label><input type="text" id="mFromEmail"></div>
+
+        <div class="field-full"><label>SMTP host (sending)</label><input type="text" id="mSmtpHost"></div>
+        <div><label>SMTP port</label><input type="number" id="mSmtpPort"></div>
+        <div><label>SMTP username</label><input type="text" id="mSmtpUser"></div>
+        <div class="field-full"><label>SMTP password / app password</label><input type="password" id="mSmtpPass" placeholder="unchanged if left blank"></div>
+
+        <div class="field-full"><label>IMAP host (receiving, optional)</label><input type="text" id="mImapHost"></div>
+        <div><label>IMAP port</label><input type="number" id="mImapPort"></div>
+        <div><label>IMAP username</label><input type="text" id="mImapUser"></div>
+        <div class="field-full"><label>IMAP password</label><input type="password" id="mImapPass" placeholder="unchanged if left blank"></div>
+      </div>
+      <div class="btn-row">
+        <button id="mSaveBtn">Save</button>
+        <button class="btn-secondary" id="mTestSmtpBtn">Test SMTP (send)</button>
+        <button class="btn-secondary" id="mTestImapBtn">Test IMAP (receive)</button>
+      </div>
+      <div class="status-line" id="mStatus"></div>
+    </div>
+
+    <div id="waTab" class="tab-panel">
+      <p class="meta" style="margin-bottom:10px">
+        Official WhatsApp Business Cloud API (Meta). Get these values from
+        <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener" style="color:var(--accent)">developers.facebook.com</a>
+        → your app → WhatsApp → API Setup.
+      </p>
+      <div class="field-grid">
+        <div class="field-full"><label>Access token</label><input type="password" id="wToken" placeholder="unchanged if left blank"></div>
+        <div><label>Phone number ID</label><input type="text" id="wPhoneId"></div>
+        <div><label>WhatsApp Business Account ID</label><input type="text" id="wWabaId"></div>
+        <div class="field-full"><label>Webhook verify token (you choose this)</label><input type="text" id="wVerifyToken"></div>
+      </div>
+      <div class="btn-row">
+        <button id="wSaveBtn">Save</button>
+        <button class="btn-secondary" id="wTestBtn">Test connection</button>
+      </div>
+      <div class="status-line" id="wStatus"></div>
+      <p class="meta" id="wWebhookUrl" style="margin-top:10px"></p>
+    </div>
+  </section>
+
+  <section>
     <h2>Jobs</h2>
     <div id="jobs" class="empty">Loading…</div>
   </section>
 
   <section>
     <h2>Drafted emails</h2>
+    <div class="draft-actions">
+      <button id="sendSelectedBtn">Send selected</button>
+      <button class="btn-secondary" id="sendAllBtn">Send all pending</button>
+    </div>
+    <div class="status-line" id="sendStatus"></div>
     <div id="drafts" class="empty">Loading…</div>
+  </section>
+
+  <section>
+    <h2>Scraped data</h2>
+    <div id="resultFiles" class="empty">Loading…</div>
+    <div id="resultViewer" class="table-wrap" style="margin-top:10px"></div>
   </section>
 
   <p class="refresh-note">Auto-refreshes every 4s</p>
@@ -284,10 +448,16 @@ async function refreshDrafts() {
   el.innerHTML = drafts.slice().reverse().map(d => `
     <div class="item">
       <div class="item-top">
-        <span class="item-title">${escapeHtml(d.business_name || d.to)}</span>
-        <span class="badge saved">${escapeHtml(d.pitch || '')}</span>
+        <span class="item-title">
+          <input type="checkbox" class="draft-checkbox" data-id="${d.id}" ${d.status !== 'pending' ? 'disabled' : ''}>
+          ${escapeHtml(d.business_name || d.to)}
+        </span>
+        <span>
+          <span class="badge">${escapeHtml(d.pitch || '')}</span>
+          <span class="badge ${d.status}">${d.status}</span>
+        </span>
       </div>
-      <div class="meta">To: ${escapeHtml(d.to)} · ${timeAgo(d.created_at)}</div>
+      <div class="meta">To: ${escapeHtml(d.to)} · ${timeAgo(d.created_at)}${d.error ? ' · ' + escapeHtml(d.error) : ''}</div>
       <details>
         <summary>${escapeHtml(d.subject)}</summary>
         <pre>${escapeHtml(d.body)}</pre>
@@ -296,12 +466,223 @@ async function refreshDrafts() {
   `).join('');
 }
 
+async function sendDrafts(body) {
+  $('sendSelectedBtn').disabled = true;
+  $('sendAllBtn').disabled = true;
+  $('sendStatus').textContent = 'Sending…';
+  $('sendStatus').className = 'status-line';
+  try {
+    const res = await fetch('/drafts/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    $('sendStatus').textContent = `Sent ${data.sent}, failed ${data.failed}.`;
+    $('sendStatus').className = 'status-line ' + (data.failed ? 'bad' : 'ok');
+    await refreshDrafts();
+    await refreshStats();
+  } catch (e) {
+    $('sendStatus').textContent = 'Send request failed: ' + e;
+    $('sendStatus').className = 'status-line bad';
+  } finally {
+    $('sendSelectedBtn').disabled = false;
+    $('sendAllBtn').disabled = false;
+  }
+}
+
+$('sendSelectedBtn').addEventListener('click', () => {
+  const ids = Array.from(document.querySelectorAll('.draft-checkbox:checked')).map(cb => parseInt(cb.dataset.id, 10));
+  if (!ids.length) { $('sendStatus').textContent = 'Select at least one draft first.'; $('sendStatus').className = 'status-line bad'; return; }
+  sendDrafts({ ids });
+});
+$('sendAllBtn').addEventListener('click', () => sendDrafts({ all: true }));
+
+async function refreshStats() {
+  const res = await fetch('/stats');
+  const s = await res.json();
+  $('stJobs').textContent = s.jobs_completed;
+  $('stBiz').textContent = s.businesses_scraped;
+  $('stPending').textContent = s.drafts_pending;
+  $('stSent').textContent = s.drafts_sent;
+  $('stFailed').textContent = s.drafts_failed;
+}
+
+async function refreshResultFiles() {
+  const res = await fetch('/results');
+  const files = await res.json();
+  const el = $('resultFiles');
+  if (!files.length) {
+    el.className = 'empty';
+    el.textContent = 'No scraped data yet.';
+    return;
+  }
+  el.className = '';
+  el.innerHTML = files.map(f => `
+    <div class="file-list-item" data-file="${escapeHtml(f.file)}">
+      <span>${escapeHtml(f.query || f.file)}</span>
+      <span class="meta">${f.count != null ? f.count + ' result(s)' : ''}</span>
+    </div>
+  `).join('');
+  el.querySelectorAll('.file-list-item').forEach(row => {
+    row.addEventListener('click', () => viewResultFile(row.dataset.file));
+  });
+}
+
+async function viewResultFile(file) {
+  const res = await fetch('/results/' + encodeURIComponent(file));
+  const data = await res.json();
+  const rows = data.results || [];
+  const cols = ['name', 'category', 'rating', 'review_count', 'address', 'phone', 'email', 'website'];
+  const viewer = $('resultViewer');
+  if (!rows.length) {
+    viewer.innerHTML = '<p class="empty">No businesses in this file.</p>';
+    return;
+  }
+  viewer.innerHTML = `
+    <table class="data-table">
+      <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr>${cols.map(c => `<td title="${escapeHtml(String(r[c] ?? ''))}">${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(btn.dataset.tab).classList.add('active');
+  });
+});
+
+const MAIL_PRESETS = {
+  gmail: { smtp_host: 'smtp.gmail.com', smtp_port: 587, imap_host: 'imap.gmail.com', imap_port: 993 },
+  outlook: { smtp_host: 'smtp.office365.com', smtp_port: 587, imap_host: 'outlook.office365.com', imap_port: 993 },
+  custom: { smtp_host: '', smtp_port: 587, imap_host: '', imap_port: 993 },
+};
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const p = MAIL_PRESETS[btn.dataset.preset];
+    $('mSmtpHost').value = p.smtp_host;
+    $('mSmtpPort').value = p.smtp_port;
+    $('mImapHost').value = p.imap_host;
+    $('mImapPort').value = p.imap_port;
+  });
+});
+
+async function loadMailSettings() {
+  const res = await fetch('/settings/mail');
+  const s = await res.json();
+  $('mFromName').value = s.from_name || '';
+  $('mFromEmail').value = s.from_email || '';
+  $('mSmtpHost').value = s.smtp_host || '';
+  $('mSmtpPort').value = s.smtp_port || 587;
+  $('mSmtpUser').value = s.smtp_user || '';
+  $('mSmtpPass').placeholder = s.smtp_password ? '•••••••• (unchanged if left blank)' : 'app password';
+  $('mImapHost').value = s.imap_host || '';
+  $('mImapPort').value = s.imap_port || 993;
+  $('mImapUser').value = s.imap_user || '';
+  $('mImapPass').placeholder = s.imap_password ? '•••••••• (unchanged if left blank)' : 'password';
+}
+
+async function saveMailSettings() {
+  const body = {
+    from_name: $('mFromName').value,
+    from_email: $('mFromEmail').value,
+    smtp_host: $('mSmtpHost').value,
+    smtp_port: parseInt($('mSmtpPort').value, 10) || 587,
+    smtp_user: $('mSmtpUser').value,
+    imap_host: $('mImapHost').value,
+    imap_port: parseInt($('mImapPort').value, 10) || 993,
+    imap_user: $('mImapUser').value,
+  };
+  if ($('mSmtpPass').value) body.smtp_password = $('mSmtpPass').value;
+  if ($('mImapPass').value) body.imap_password = $('mImapPass').value;
+  await fetch('/settings/mail', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  $('mSmtpPass').value = ''; $('mImapPass').value = '';
+  $('mStatus').textContent = 'Saved.';
+  $('mStatus').className = 'status-line ok';
+  await loadMailSettings();
+}
+
+async function testMail(kind) {
+  const btn = kind === 'smtp' ? $('mTestSmtpBtn') : $('mTestImapBtn');
+  btn.disabled = true;
+  $('mStatus').textContent = 'Testing…';
+  $('mStatus').className = 'status-line';
+  try {
+    const res = await fetch(`/settings/mail/test-${kind}`, { method: 'POST' });
+    const data = await res.json();
+    $('mStatus').textContent = data.ok ? `${kind.toUpperCase()} OK.` : `${kind.toUpperCase()} failed: ${data.error}`;
+    $('mStatus').className = 'status-line ' + (data.ok ? 'ok' : 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('mSaveBtn').addEventListener('click', saveMailSettings);
+$('mTestSmtpBtn').addEventListener('click', () => testMail('smtp'));
+$('mTestImapBtn').addEventListener('click', () => testMail('imap'));
+
+async function loadWhatsAppSettings() {
+  const res = await fetch('/settings/whatsapp');
+  const s = await res.json();
+  $('wPhoneId').value = s.phone_number_id || '';
+  $('wWabaId').value = s.waba_id || '';
+  $('wVerifyToken').value = s.verify_token || '';
+  $('wToken').placeholder = s.access_token ? '•••••••• (unchanged if left blank)' : 'access token';
+  $('wWebhookUrl').textContent = 'Webhook callback URL for Meta: ' + window.location.origin + '/webhooks/whatsapp';
+}
+
+async function saveWhatsAppSettings() {
+  const body = {
+    phone_number_id: $('wPhoneId').value,
+    waba_id: $('wWabaId').value,
+    verify_token: $('wVerifyToken').value,
+  };
+  if ($('wToken').value) body.access_token = $('wToken').value;
+  await fetch('/settings/whatsapp', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  $('wToken').value = '';
+  $('wStatus').textContent = 'Saved.';
+  $('wStatus').className = 'status-line ok';
+  await loadWhatsAppSettings();
+}
+
+async function testWhatsApp() {
+  $('wTestBtn').disabled = true;
+  $('wStatus').textContent = 'Testing…';
+  $('wStatus').className = 'status-line';
+  try {
+    const res = await fetch('/settings/whatsapp/test', { method: 'POST' });
+    const data = await res.json();
+    $('wStatus').textContent = data.ok ? 'Connected.' : 'Failed: ' + data.error;
+    $('wStatus').className = 'status-line ' + (data.ok ? 'ok' : 'bad');
+  } finally {
+    $('wTestBtn').disabled = false;
+  }
+}
+
+$('wSaveBtn').addEventListener('click', saveWhatsAppSettings);
+$('wTestBtn').addEventListener('click', testWhatsApp);
+
 $('scrapeBtn').addEventListener('click', scrape);
 $('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') scrape(); });
 
 refreshJobs();
 refreshDrafts();
 refreshLive();
+refreshStats();
+refreshResultFiles();
+loadMailSettings();
+loadWhatsAppSettings();
+setInterval(refreshStats, 5000);
 setInterval(refreshJobs, 4000);
 setInterval(refreshDrafts, 4000);
 setInterval(refreshLive, 1500);

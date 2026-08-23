@@ -7,4 +7,6 @@ venv/
 data/results/*
 !data/results/.gitkeep
 data/seen_places.txt
-data/drafts.jsonl
+data/app.db
+data/app.db-wal
+data/app.db-shm

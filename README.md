@@ -104,8 +104,8 @@ and re-add it) to have it picked up again.
 
 Same functionality, running directly on your machine instead of in a
 container — useful if you don't want Docker installed at all. Works
-identically on Windows and Linux; [uv](https://docs.astral.sh/uv/) is a
-single cross-platform binary that handles the Python install, virtual
+identically on Windows, macOS, and Linux; [uv](https://docs.astral.sh/uv/)
+is a single cross-platform binary that handles the Python install, virtual
 environment, and dependencies for you.
 
 **Linux / macOS:**
@@ -155,6 +155,7 @@ To check it from your phone on the same WiFi:
 1. Find the laptop's local network IP:
    - **Windows**: `ipconfig` → look for "IPv4 Address" (something like `192.168.1.42`)
    - **Linux**: `hostname -I` or `ip addr`
+   - **macOS**: `ipconfig getifaddr en0` (or System Settings → Wi-Fi → Details)
 2. On your phone's browser, go to `http://<that-ip>:8080` — e.g. `http://192.168.1.42:8080`.
 
 This works because the port is published on all network interfaces, not
@@ -178,6 +179,35 @@ laptop over `http://192.168.x.x` on your LAN doesn't qualify — that's just
 how browsers treat plain HTTP off-device. The manual "Add to Home screen"
 route still gets you the same app-like icon and standalone window, it's
 just a menu tap instead of an automatic prompt.
+
+### Monitoring from anywhere, not just the same WiFi
+
+The steps above only work while your phone is on the same network as the
+laptop. To check on it from actual cellular data / a different WiFi
+(coffee shop, out and about), you need the laptop reachable over the
+internet — and the responsible way to do that is **not** router port
+forwarding, since this app has no login and would then be a lead database
+sitting open on the public internet.
+
+Use [Tailscale](https://tailscale.com) instead (free for personal use):
+
+1. Install it on the laptop and sign in.
+2. Install the Tailscale app on your phone and sign in with the **same
+   account**.
+3. Tailscale gives the laptop a private address (something like
+   `100.x.y.z`, or a name like `laptop-name.tailnet-name.ts.net`) — visible
+   in the Tailscale app/admin console.
+4. From your phone, anywhere with internet, go to
+   `http://<that-tailscale-address>:8080`.
+
+No app changes, no port forwarding, no public exposure — Tailscale creates
+a private encrypted network between just your own devices, so from this
+app's perspective your phone looks like it's on the same LAN as the laptop
+even when it's on the other side of the world. If you'd rather not install
+anything extra and just want a quick one-off peek, a tunneling tool like
+`ngrok` also works, but its free tier gives a new public URL each restart
+and — unlike Tailscale — that URL is reachable by anyone who has it, not
+just your own devices.
 
 ## Using it from n8n
 
@@ -226,9 +256,10 @@ curl http://localhost:8080/jobs/fec0c255a123
 
 Other endpoints: `GET /jobs` lists every job with its status, `GET /health`
 is a plain liveness check. `POST /drafts` (body: `to`, `subject`, `body`,
-optional `business_name`/`pitch`) appends a record to `data/drafts.jsonl` —
-useful as a local, no-Google-account-needed place to land generated emails
-for review before wiring up real sending; `GET /drafts` reads them back.
+optional `business_name`/`pitch`) saves a record to the local database —
+useful as a place to land generated emails for review before sending;
+`GET /drafts` reads them back. See [Sending email &
+WhatsApp](#sending-email--whatsapp) below for actually sending them.
 
 > **If n8n also runs in Docker** on the same laptop, `localhost` inside the
 > n8n container won't reach the scraper container. Either put both in the
@@ -265,8 +296,10 @@ business has an email, the scraper calls a locally-running
 no API key. It reads the business's category, rating, and actual review
 text, decides which of two pitches fits better, and writes a short,
 specific email referencing something real about that business (not a mass
-template). Every draft is appended to `data/drafts.jsonl` — nothing is
-sent automatically.
+template). Every draft is saved to the local database — nothing is sent
+automatically; review and send it from the web UI's **Drafted emails**
+panel (checkboxes + **Send selected** / **Send all pending**), which uses
+whatever you've configured under **Connections → Email** below.
 
 Requirements: Ollama running on the same machine (`ollama serve`, with a
 model pulled — `OLLAMA_MODEL` defaults to `gemma3:12b`). The scraper reaches
@@ -276,13 +309,83 @@ resolves to the host machine from inside the container).
 **Before sending anything for real**, set `COMPANY_ADDRESS` to your actual
 business address — commercial email conventionally requires one, and the
 default is a placeholder (`[YOUR BUSINESS ADDRESS HERE]`) that will
-otherwise go out literally as written. Review `data/drafts.jsonl` (or the
-web UI) before wiring up real sending.
+otherwise go out literally as written.
 
-**Other outreach channels** (LinkedIn DMs, SMS/phone, WhatsApp) aren't
-built — each has its own account setup, cost, and ban/compliance risk
-significantly different from email, worth deciding on deliberately rather
-than bolting on by default.
+**LinkedIn DMs and SMS/phone outreach** aren't built — each has its own
+account setup, cost, and ban/compliance risk significantly different from
+email and WhatsApp, worth deciding on deliberately rather than bolting on
+by default.
+
+## Sending email & WhatsApp
+
+The web UI has a **Connections** panel with two tabs for wiring up real
+sending — no code or `.env` editing needed, it's all saved to the local
+database from the browser.
+
+### Email (SMTP to send, IMAP to receive)
+
+Click a provider preset (**Gmail**, **Outlook/Office365**, or **Custom**)
+to prefill the host/port, fill in your address and password, hit **Save**,
+then **Test SMTP** to confirm it can actually send. IMAP is optional —
+only needed if you want the app to read incoming replies later.
+
+For Gmail/Outlook, use an **app password**, not your normal login
+password — both providers require this for third-party apps once 2-factor
+auth is on (Google: Account → Security → App Passwords; Microsoft:
+similar under Security → Advanced security options). Passwords are stored
+locally in `data/app.db`, in plain text — this is a local single-user
+tool, not a hosted service, but don't commit or share that file.
+
+### WhatsApp (official Business Cloud API)
+
+This uses Meta's official platform, not an unofficial/ToS-violating
+automation library — no ban risk to a personal number, but real setup on
+Meta's side:
+
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps),
+   create an app (type: **Business**), and add the **WhatsApp** product.
+2. Under WhatsApp → **API Setup**, Meta gives you a free test phone number,
+   a **Phone Number ID**, and a temporary (24h) access token — enough to
+   try everything below before doing full business verification for a
+   permanent token and your own number.
+3. In this app's **Connections → WhatsApp** tab, paste the **Access
+   token** and **Phone number ID**, then **Save** and **Test connection**.
+4. Pick any string as your **Webhook verify token** (just a shared secret
+   you invent) and save it too — the UI shows you the exact webhook URL
+   to use in the next step.
+5. **To receive incoming messages**, Meta needs to reach your webhook over
+   the public internet — `localhost` or your LAN IP won't work, Meta's
+   servers aren't on your network. Use a tunnel like
+   [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+   (free, stable URL) or [ngrok](https://ngrok.com/) (free, URL changes on
+   restart unless paid) to get a public HTTPS URL pointing at this app's
+   port, then in Meta's app dashboard → WhatsApp → **Configuration** →
+   Webhook, enter `https://<your-tunnel-url>/webhooks/whatsapp`, the same
+   verify token from step 4, and subscribe to the `messages` field.
+
+One WhatsApp platform rule, not a limitation of this code: you can only
+send free-form text as a **reply** within 24 hours of the customer's last
+message. Starting a fresh conversation (cold outreach) requires a
+Meta-approved message *template* — template creation/approval isn't built
+yet, since it only matters once you're past the receiving/replying setup
+above.
+
+Incoming WhatsApp messages are currently recorded (`GET /whatsapp/inbox`)
+but not auto-replied to — the auto-reply logic (what to say, staying
+within FAQ/info-collection bounds, never quoting prices) is a deliberate
+next step, not built silently alongside the plumbing.
+
+## Data viewer & stats
+
+The web UI's **Overview** row shows running totals (searches completed,
+businesses scraped, drafts pending/sent/failed) pulled live from the
+database — also available as JSON at `GET /stats`.
+
+The **Scraped data** panel lists every result file from `data/results/`
+by query and count; click one to load it into a table (name, category,
+rating, reviews, address, phone, email, website) right in the browser,
+instead of opening the JSON/CSV by hand. Backed by `GET /results` (list)
+and `GET /results/{filename}` (one file's full data).
 
 ## Configuration
 
@@ -305,6 +408,10 @@ Set these as environment variables (see `docker-compose.yml`):
 | `HEADLESS` | `true` | Set to `false` to run Chromium with a visible window (needs a display) |
 | `LOG_LEVEL` | `INFO` | Python logging level |
 | `API_PORT` | `8080` | Port the HTTP API and web UI listen on |
+| `DB_FILE` | `data/app.db` | SQLite database: job history, drafts, mail/WhatsApp settings |
+
+Mail and WhatsApp credentials are *not* environment variables — set those
+from the web UI's Connections panel (see above), they're saved to `DB_FILE`.
 
 ## Project layout
 
@@ -313,17 +420,24 @@ Dockerfile / docker-compose.yml   container + Chromium setup
 pyproject.toml / setup.sh / setup.ps1 / run.sh / run.ps1   native (no-Docker) setup, via uv
 data/queries.yaml                 the job queue (mounted volume)
 data/results/                     CSV/JSON output (mounted volume)
-data/drafts.jsonl                 generated outreach emails, for review
+data/app.db                       SQLite: job history, drafts, mail/WhatsApp settings
 src/main.py                       entrypoint: starts the API + worker thread
-src/api.py                        HTTP API (FastAPI): POST /scrape, GET /jobs/{id}, /drafts; serves the web UI
+src/api.py                        HTTP API (FastAPI): all routes below, serves the web UI
 src/web/index.html                the web UI (single static page, no build step)
 src/web/manifest.json, sw.js, icons/   makes the web UI installable as an app (PWA)
-src/jobs.py                       in-memory job store shared by the API and worker
+src/db.py                         SQLite connection + schema (self-initializing)
+src/jobs.py                       persistent job store shared by the API and worker
 src/queue_runner.py               worker loop: drains API jobs, then queries.yaml
 src/maps_scraper.py               Playwright scraping logic
 src/email_finder.py               best-effort contact-email lookup from a business's website
 src/pitch_writer.py               calls local Ollama to draft a personalized outreach email
-src/drafts_store.py               appends/reads generated drafts to/from data/drafts.jsonl
+src/drafts_store.py               drafts CRUD (pending/sent/failed) against the database
+src/mail_settings.py              SMTP/IMAP credentials CRUD against the database
+src/mailer.py                     actually sends via smtplib; IMAP connectivity test
+src/whatsapp_settings.py          WhatsApp Cloud API credentials CRUD against the database
+src/whatsapp.py                   Meta Graph API client; webhook payload parsing
+src/results_store.py              lists/reads data/results/*.json for the data viewer
+src/stats.py                      aggregate counts for the Overview panel
 src/live_view.py                  holds the latest screenshot, served at GET /live
 src/seen_store.py                 place-ID dedup, persisted to data/seen_places.txt
 src/exporter.py                   CSV/JSON writers
