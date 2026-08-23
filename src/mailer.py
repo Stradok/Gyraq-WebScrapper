@@ -1,13 +1,76 @@
+import email.utils
 import imaplib
+import logging
+import re
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 
 from .mail_settings import get_mail_settings
 
+log = logging.getLogger(__name__)
+
 
 class MailNotConfigured(Exception):
     pass
+
+
+def _find_sent_folder(conn: imaplib.IMAP4) -> str | None:
+    """IMAP has no fixed name for the Sent folder - Gmail/modern servers
+    advertise it via the RFC 6154 \\Sent special-use flag, but plenty of
+    providers (older cPanel/Dovecot setups) don't, so fall back to the
+    first folder whose name contains "sent"."""
+    typ, folders = conn.list()
+    if typ != "OK" or not folders:
+        return None
+    fallback = None
+    for raw in folders:
+        if not raw:
+            continue
+        line = raw.decode(errors="ignore") if isinstance(raw, bytes) else raw
+        m = re.search(r'"([^"]+)"\s*$', line) or re.search(r"(\S+)\s*$", line)
+        if not m:
+            continue
+        name = m.group(1)
+        if "\\sent" in line.lower():
+            return name
+        if fallback is None and "sent" in name.lower():
+            fallback = name
+    return fallback
+
+
+def _save_to_sent(settings: dict, msg_bytes: bytes) -> None:
+    """Best-effort only: the email is already delivered via SMTP by the
+    time this runs, so a failure here (no IMAP configured, no Sent
+    folder found, wrong password, etc.) must never look like a failed
+    send - just log it and move on."""
+    if not settings.get("imap_host") or not settings.get("imap_user"):
+        return
+    try:
+        host = settings["imap_host"]
+        port = int(settings.get("imap_port") or 993)
+        user = settings["imap_user"]
+        password = settings.get("imap_password") or ""
+        conn = (
+            imaplib.IMAP4_SSL(host, port, timeout=15)
+            if settings.get("imap_use_ssl", True)
+            else imaplib.IMAP4(host, port, timeout=15)
+        )
+        try:
+            conn.login(user, password)
+            folder = _find_sent_folder(conn)
+            if not folder:
+                log.warning("Sent an email but found no IMAP Sent folder to file a copy into")
+                return
+            conn.append(folder, "\\Seen", imaplib.Time2Internaldate(time.time()), msg_bytes)
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+    except Exception:
+        log.warning("Failed to save a copy of the sent email to the IMAP Sent folder", exc_info=True)
 
 
 def send_email(to: str, subject: str, body: str) -> None:
@@ -21,6 +84,8 @@ def send_email(to: str, subject: str, body: str) -> None:
     msg["From"] = f"{from_name} <{from_email}>"
     msg["To"] = to
     msg["Subject"] = subject
+    msg["Date"] = email.utils.formatdate(localtime=True)
+    msg["Message-ID"] = email.utils.make_msgid()
     msg.set_content(body)
 
     host = settings["smtp_host"]
@@ -48,6 +113,12 @@ def send_email(to: str, subject: str, body: str) -> None:
         with smtplib.SMTP(host, port, timeout=20) as server:
             server.login(user, password)
             server.send_message(msg)
+
+    # SMTP submission alone doesn't put a copy in the account's Sent
+    # folder - that's a webmail-UI convention, not something the SMTP
+    # protocol does for you. File one over IMAP so sent mail actually
+    # shows up in the mailbox, not just in this app's own history.
+    _save_to_sent(settings, msg.as_bytes())
 
 
 def test_smtp() -> None:

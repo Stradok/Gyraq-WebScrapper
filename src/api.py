@@ -13,7 +13,7 @@ from . import config, job_control
 from .auth import get_or_create_token, verify_token
 from .company_profile import get_company_profile, save_company_profile
 from .drafts_store import delete_draft, get_draft, list_drafts as _list_drafts
-from .drafts_store import mark_failed, mark_sent, save_draft
+from .drafts_store import mark_failed, mark_sent, save_draft, update_draft
 from .jobs import Job, job_store
 from .live_view import get_frame
 from .mail_settings import masked_mail_settings, save_mail_settings
@@ -92,6 +92,12 @@ class DraftRequest(BaseModel):
     pitch: str | None = None
 
 
+class DraftUpdateRequest(BaseModel):
+    to: str | None = None
+    subject: str | None = None
+    body: str | None = None
+
+
 class MailSettingsRequest(BaseModel):
     smtp_host: str | None = None
     smtp_port: int | None = None
@@ -128,6 +134,7 @@ class CompanyProfileRequest(BaseModel):
     company_name: str | None = None
     website: str | None = None
     description: str | None = None
+    address: str | None = None
 
 
 class ModelRequest(BaseModel):
@@ -256,6 +263,16 @@ def delete_draft_route(draft_id: int) -> dict:
         raise HTTPException(status_code=404, detail="draft not found")
     delete_draft(draft_id)
     return {"ok": True}
+
+
+@app.put("/drafts/{draft_id}")
+def update_draft_route(draft_id: int, req: DraftUpdateRequest) -> dict:
+    draft = get_draft(draft_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    if draft["status"] == "sent":
+        raise HTTPException(status_code=409, detail="can't edit an already-sent email")
+    return update_draft(draft_id, to=req.to, subject=req.subject, body=req.body)
 
 
 @app.get("/live")

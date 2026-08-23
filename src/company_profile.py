@@ -8,6 +8,7 @@ DEFAULTS = {
     "company_name": "Gyraq",
     "website": "",
     "description": "",
+    "address": "",
 }
 
 

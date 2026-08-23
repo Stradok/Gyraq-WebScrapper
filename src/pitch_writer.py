@@ -132,8 +132,10 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
             log.warning("Pitch for %r rejected (%s), skipping draft", biz.name, violation)
             return None
 
-        company_name = get_company_profile().get("company_name") or "Gyraq"
-        body = raw_body + FOOTER.format(company_name=company_name, address=config.COMPANY_ADDRESS)
+        profile = get_company_profile()
+        company_name = profile.get("company_name") or "Gyraq"
+        address = profile.get("address") or config.COMPANY_ADDRESS
+        body = raw_body + FOOTER.format(company_name=company_name, address=address)
         return {"pitch": parsed.get("pitch"), "subject": subject, "body": body}
     except Exception:
         log.warning("Pitch generation failed for %r", biz.name, exc_info=True)

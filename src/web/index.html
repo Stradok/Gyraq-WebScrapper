@@ -235,6 +235,36 @@
     padding: 5px 10px;
   }
   .item-actions button.danger { color: var(--err); border-color: var(--err); }
+  .draft-edit { margin-top: 8px; }
+  .draft-edit > div { margin-bottom: 8px; }
+  .draft-edit label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .draft-edit input[type=text], .draft-edit textarea {
+    width: 100%;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    font-family: inherit;
+    font-size: 13px;
+  }
+  .draft-edit textarea { resize: vertical; }
+  section > h2 {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  section > h2::before {
+    content: '▾';
+    display: inline-block;
+    font-size: 12px;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section.collapsed > h2::before { transform: rotate(-90deg); }
+  section.collapsed > *:not(h2) { display: none; }
   .badge.sent { background: rgba(53,195,123,0.15); color: var(--ok); }
   .badge.pending { background: rgba(230,162,60,0.15); color: var(--warn); }
   .badge.failed { background: rgba(229,72,77,0.15); color: var(--err); }
@@ -477,6 +507,7 @@
     <div class="field-grid" style="margin-bottom:14px">
       <div><label>Company name</label><input type="text" id="companyName"></div>
       <div><label>Website</label><input type="text" id="companyWebsite" placeholder="https://..."></div>
+      <div class="field-full"><label>Business address</label><input type="text" id="companyAddress" placeholder="Shown in every email's footer, e.g. for CAN-SPAM/unsubscribe compliance"></div>
       <div class="field-full"><label>About the company</label><input type="text" id="companyDescription" placeholder="A sentence or two the LLM can draw on"></div>
     </div>
     <div class="btn-row" style="margin-top:0;margin-bottom:14px">
@@ -755,26 +786,73 @@ async function refreshDrafts() {
         </span>
       </div>
       <div class="meta">To: ${escapeHtml(d.to)} · ${timeAgo(d.created_at)}${d.error ? ' · ' + escapeHtml(d.error) : ''}</div>
-      <details>
+      <details class="draft-view">
         <summary>${escapeHtml(d.subject)}</summary>
         <pre>${escapeHtml(d.body)}</pre>
       </details>
+      <div class="draft-edit" hidden>
+        <div><label>To</label><input type="text" class="edit-to" value="${escapeHtml(d.to)}"></div>
+        <div><label>Subject</label><input type="text" class="edit-subject" value="${escapeHtml(d.subject)}"></div>
+        <div><label>Body</label><textarea class="edit-body" rows="8">${escapeHtml(d.body)}</textarea></div>
+        <div class="item-actions">
+          <button data-action="save-draft" data-id="${d.id}">Save</button>
+          <button data-action="cancel-edit-draft" data-id="${d.id}" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
       <div class="item-actions">
+        ${d.status !== 'sent' ? `<button data-action="edit-draft" data-id="${d.id}">Edit</button>` : ''}
         <button data-action="delete-draft" data-id="${d.id}" class="danger">Delete</button>
       </div>
     </div>
   `).join('');
 }
 
+function draftItemEl(id) {
+  return document.querySelector(`#drafts button[data-id="${id}"]`).closest('.item');
+}
+
 $('drafts').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button[data-action="delete-draft"]');
+  const btn = e.target.closest('button[data-action]');
   if (!btn) return;
-  if (!confirm('Delete this draft? This cannot be undone.')) return;
-  btn.disabled = true;
-  try {
-    await apiFetch(`/drafts/${btn.dataset.id}`, { method: 'DELETE' });
-    await refreshDrafts();
-  } catch (err) { /* auth gate already shown by apiFetch if needed */ }
+  const { action, id } = btn.dataset;
+
+  if (action === 'edit-draft') {
+    const item = draftItemEl(id);
+    item.querySelector('.draft-view').hidden = true;
+    item.querySelector('.draft-edit').hidden = false;
+    return;
+  }
+  if (action === 'cancel-edit-draft') {
+    const item = draftItemEl(id);
+    item.querySelector('.draft-view').hidden = false;
+    item.querySelector('.draft-edit').hidden = true;
+    return;
+  }
+  if (action === 'save-draft') {
+    const item = draftItemEl(id);
+    btn.disabled = true;
+    try {
+      await apiFetch(`/drafts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: item.querySelector('.edit-to').value,
+          subject: item.querySelector('.edit-subject').value,
+          body: item.querySelector('.edit-body').value,
+        }),
+      });
+      await refreshDrafts();
+    } catch (err) { /* auth gate already shown by apiFetch if needed */ }
+    return;
+  }
+  if (action === 'delete-draft') {
+    if (!confirm('Delete this draft? This cannot be undone.')) return;
+    btn.disabled = true;
+    try {
+      await apiFetch(`/drafts/${id}`, { method: 'DELETE' });
+      await refreshDrafts();
+    } catch (err) { /* auth gate already shown by apiFetch if needed */ }
+  }
 });
 
 async function refreshSentEmails() {
@@ -1090,6 +1168,7 @@ async function loadCompanyProfile() {
   const data = await res.json();
   $('companyName').value = data.company_name || '';
   $('companyWebsite').value = data.website || '';
+  $('companyAddress').value = data.address || '';
   $('companyDescription').value = data.description || '';
 }
 
@@ -1102,6 +1181,7 @@ async function saveCompanyProfile() {
       body: JSON.stringify({
         company_name: $('companyName').value,
         website: $('companyWebsite').value,
+        address: $('companyAddress').value,
         description: $('companyDescription').value,
       }),
     });
@@ -1212,6 +1292,24 @@ function refreshAll() {
   loadCompanyProfile();
   setupRemoteAccess();
 }
+
+function initCollapsibleSections() {
+  document.querySelectorAll('section[id^="sec-"]').forEach((section) => {
+    const h2 = section.querySelector(':scope > h2');
+    if (!h2) return;
+    const key = 'collapsed:' + section.id;
+    try {
+      if (localStorage.getItem(key) === '1') section.classList.add('collapsed');
+    } catch (e) { /* private-browsing / storage blocked - just skip persistence */ }
+    h2.addEventListener('click', () => {
+      section.classList.toggle('collapsed');
+      try {
+        localStorage.setItem(key, section.classList.contains('collapsed') ? '1' : '0');
+      } catch (e) { /* ignore - collapse still works for this session */ }
+    });
+  });
+}
+initCollapsibleSections();
 
 (async function init() {
   await bootstrapAuthFromUrl();

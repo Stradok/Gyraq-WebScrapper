@@ -74,6 +74,27 @@ def mark_failed(draft_id: int, error: str) -> None:
         )
 
 
+def update_draft(
+    draft_id: int, to: str | None = None, subject: str | None = None, body: str | None = None
+) -> dict | None:
+    fields, values = [], []
+    if to is not None:
+        fields.append("to_email = ?")
+        values.append(to)
+    if subject is not None:
+        fields.append("subject = ?")
+        values.append(subject)
+    if body is not None:
+        fields.append("body = ?")
+        values.append(body)
+    if not fields:
+        return get_draft(draft_id)
+    values.append(draft_id)
+    with db.connect() as conn:
+        conn.execute(f"UPDATE drafts SET {', '.join(fields)} WHERE id = ?", values)
+    return get_draft(draft_id)
+
+
 def delete_draft(draft_id: int) -> bool:
     with db.connect() as conn:
         cur = conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
