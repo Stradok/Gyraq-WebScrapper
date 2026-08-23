@@ -343,7 +343,7 @@
 <div class="auth-gate" id="authGate" hidden>
   <div class="auth-card">
     <h2>Sign in</h2>
-    <p>This device needs the access token to talk to the app. Find it on the computer running Gyraq — the "Remote access" panel once signed in there, the startup logs, or <code>data/.auth_token</code>.</p>
+    <p>This device needs the access token to talk to the app. Easiest: scan the QR code from the "Remote access" panel on a device that's already signed in. Otherwise, find it on the computer running Gyraq — the startup logs, or <code>data/.auth_token</code>.</p>
     <input type="password" id="authInput" placeholder="Paste token" autocomplete="off">
     <button id="authSubmitBtn">Continue</button>
     <p class="status-line bad" id="authError"></p>
@@ -546,18 +546,34 @@ async function submitAuthToken() {
 $('authSubmitBtn').addEventListener('click', submitAuthToken);
 $('authInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuthToken(); });
 
-// A token in the URL (from a scanned QR code) signs this device in
-// automatically, then gets scrubbed from the address bar/history.
-(function bootstrapTokenFromUrl() {
+// A scanned QR code lands here with either a one-time pairing code
+// (?pair=..., the normal path - exchanged for the real token, works once,
+// expires in 10 min) or a raw ?token= (e.g. pasted manually). Either way
+// the param gets scrubbed from the address bar/history afterward.
+async function bootstrapAuthFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const urlToken = params.get('token');
+  const pairCode = params.get('pair');
+
   if (urlToken) {
     setToken(urlToken);
+  } else if (pairCode) {
+    try {
+      const res = await fetch('/pair/' + encodeURIComponent(pairCode));
+      if (res.ok) {
+        const data = await res.json();
+        setToken(data.token);
+      }
+    } catch (e) { /* falls through to the sign-in prompt */ }
+  }
+
+  if (urlToken || pairCode) {
     params.delete('token');
+    params.delete('pair');
     const rest = params.toString();
     history.replaceState({}, '', window.location.pathname + (rest ? '?' + rest : ''));
   }
-})();
+}
 
 let lastLiveUrl = null;
 async function refreshLive() {
@@ -874,31 +890,46 @@ $('wTestBtn').addEventListener('click', testWhatsApp);
 $('scrapeBtn').addEventListener('click', scrape);
 $('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') scrape(); });
 
+let remoteLanUrl = null;
+
 async function setupRemoteAccess() {
   const el = $('remoteAccessBody');
-  let lanUrl = null;
   const host = window.location.hostname;
   if (host !== 'localhost' && host !== '127.0.0.1') {
-    lanUrl = window.location.origin;
+    remoteLanUrl = window.location.origin;
   } else if (window.gyraq) {
-    try { lanUrl = await window.gyraq.getLanUrl(); } catch (e) { lanUrl = null; }
+    try { remoteLanUrl = await window.gyraq.getLanUrl(); } catch (e) { remoteLanUrl = null; }
   }
 
-  if (!lanUrl) {
+  if (!remoteLanUrl) {
     el.className = 'empty';
     el.innerHTML = 'Open this page from your phone\'s browser using this computer\'s LAN IP (Windows: <code>ipconfig</code>, Linux: <code>hostname -I</code>, macOS: <code>ipconfig getifaddr en0</code>) to set it up.';
     return;
   }
 
-  const fullUrl = `${lanUrl}/?token=${encodeURIComponent(getToken())}`;
   el.className = '';
   el.innerHTML = `
     <div class="qr-box"><img id="qrImg" alt="QR code"></div>
-    <div class="token-row"><code>${escapeHtml(fullUrl)}</code></div>
+    <div class="token-row"><code id="pairUrlText">Generating…</code></div>
+    <p class="meta" style="margin-top:8px">
+      Expires in 10 minutes, works once.
+      <button class="btn-secondary" id="refreshPairBtn" style="font-size:11px;padding:5px 10px;margin-left:4px;">New code</button>
+    </p>
   `;
+  $('refreshPairBtn').addEventListener('click', loadPairingQr);
+  await loadPairingQr();
+}
+
+async function loadPairingQr() {
+  if (!remoteLanUrl) return;
   try {
-    const res = await apiFetch('/qr?url=' + encodeURIComponent(fullUrl));
-    const blob = await res.blob();
+    const codeRes = await apiFetch('/settings/pairing/new', { method: 'POST' });
+    const { code } = await codeRes.json();
+    const fullUrl = `${remoteLanUrl}/?pair=${encodeURIComponent(code)}`;
+    $('pairUrlText').textContent = fullUrl;
+
+    const qrRes = await apiFetch('/qr?url=' + encodeURIComponent(fullUrl));
+    const blob = await qrRes.blob();
     $('qrImg').src = URL.createObjectURL(blob);
   } catch (e) { /* auth gate already shown by apiFetch if needed */ }
 }
@@ -914,11 +945,14 @@ function refreshAll() {
   setupRemoteAccess();
 }
 
-if (getToken()) {
-  refreshAll();
-} else {
-  showAuthGate();
-}
+(async function init() {
+  await bootstrapAuthFromUrl();
+  if (getToken()) {
+    refreshAll();
+  } else {
+    showAuthGate();
+  }
+})();
 setInterval(refreshStats, 5000);
 setInterval(refreshJobs, 4000);
 setInterval(refreshDrafts, 4000);

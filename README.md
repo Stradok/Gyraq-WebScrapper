@@ -262,14 +262,18 @@ or trigger sends. To close that off, **every route except `/health` and the
 page shell itself requires a token**, checked via an `X-App-Token` header.
 
 - The token is generated once, automatically, on first run — no setup step.
-- Find it three ways: the **Remote access** panel in the web UI once you're
-  signed in on one device, the container's startup logs (`docker compose
-  logs`), or the file `data/.auth_token` directly.
+- Find it two ways: the container's startup logs (`docker compose logs`),
+  or the file `data/.auth_token` directly.
 - The **desktop app** (Electron) reads the token straight off disk and
   attaches it to every request automatically — zero manual steps for that,
   the primary way of using this.
 - A plain browser (including at `localhost:8080`) needs the token pasted in
   once; it's then remembered for that browser via local storage.
+- **Adding a second device (phone) doesn't hand out the master token
+  directly** — the QR code in the **Remote access** panel encodes a
+  short-lived, single-use pairing code (10 minute expiry) that's exchanged
+  for a real session on first scan. A screenshot of an old QR code, or
+  someone re-scanning one already used, does nothing.
 - **Anything that calls the API programmatically — n8n, curl, a script —
   needs to send the token too**, or every call gets a `401`. See below.
 
@@ -567,6 +571,7 @@ src/main.py                       entrypoint: starts the API + worker thread
 src/api.py                        HTTP API (FastAPI): all routes below + the auth middleware, serves the web UI
 src/auth.py                       generates/verifies the access token
 src/qr.py                         generates the QR PNG for the Remote Access panel
+src/pairing.py                    short-lived one-time codes for the QR phone-pairing flow
 src/web/index.html                the web UI (single static page, no build step)
 src/web/manifest.json, sw.js, icons/   makes the web UI installable as an app (PWA)
 src/db.py                         SQLite connection + schema (self-initializing)

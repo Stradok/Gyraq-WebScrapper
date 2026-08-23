@@ -9,13 +9,14 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import config
-from .auth import verify_token
+from .auth import get_or_create_token, verify_token
 from .drafts_store import get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft
 from .jobs import Job, job_store
 from .live_view import get_frame
 from .mail_settings import masked_mail_settings, save_mail_settings
 from .mailer import MailNotConfigured, send_email, test_imap, test_smtp
+from .pairing import consume_pairing_code, create_pairing_code
 from .qr import make_qr_png
 from .results_store import list_result_files, read_result_file
 from .stats import get_stats
@@ -316,6 +317,23 @@ def qr_code(request: Request) -> Response:
     if not url:
         raise HTTPException(status_code=400, detail="missing url param")
     return Response(content=make_qr_png(url), media_type="image/png")
+
+
+@app.post("/settings/pairing/new")
+def new_pairing_code() -> dict:
+    """Only an already-authenticated device can mint one of these -
+    that's what makes handing it to a new device (via QR) safe."""
+    return {"code": create_pairing_code(), "ttl_seconds": 600}
+
+
+@app.get("/pair/{code}")
+def exchange_pairing_code(code: str) -> dict:
+    """Deliberately public: the phone scanning the QR hasn't signed in
+    yet. Security comes from the code being random, single-use, and
+    expiring in 10 minutes - not from an auth header."""
+    if not consume_pairing_code(code):
+        raise HTTPException(status_code=403, detail="invalid or expired pairing code")
+    return {"token": get_or_create_token()}
 
 
 # Mounted last so it never shadows the API routes above.
