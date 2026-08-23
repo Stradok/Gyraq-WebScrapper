@@ -1,8 +1,9 @@
 import json
 
-from . import db
+from . import config, db
 
 SETTINGS_KEY = "prompt"
+MODEL_KEY = "ollama_model"
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are writing a short, personalized cold outreach email on behalf of "
@@ -91,3 +92,25 @@ def reset_system_prompt() -> str:
     with db.connect() as conn:
         conn.execute("DELETE FROM settings WHERE key = ?", (SETTINGS_KEY,))
     return DEFAULT_SYSTEM_PROMPT
+
+
+def get_ollama_model() -> str:
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (MODEL_KEY,)
+        ).fetchone()
+    if row:
+        model = json.loads(row["value"]).get("model")
+        if model:
+            return model
+    return config.OLLAMA_MODEL
+
+
+def save_ollama_model(model: str) -> str:
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (MODEL_KEY, json.dumps({"model": model})),
+        )
+    return model

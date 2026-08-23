@@ -240,6 +240,8 @@
     max-width: 220px;
   }
   table.data-table th { color: var(--muted); font-weight: 600; }
+  table.data-table tr.clickable-row { cursor: pointer; }
+  table.data-table tr.clickable-row:hover td { background: rgba(79,140,255,0.08); }
   .table-wrap { overflow-x: auto; }
   .file-list-item {
     display: flex;
@@ -356,6 +358,7 @@
       <p>Local business search, deduplicated leads, AI-drafted outreach — all running on this machine.</p>
     </div>
     <div class="header-actions">
+      <button id="refreshBtn" class="install-btn" title="Refresh latest data">⟳ Refresh</button>
       <select id="navSelect" class="nav-select">
         <option value="">Jump to…</option>
         <option value="sec-overview">Overview</option>
@@ -366,6 +369,7 @@
         <option value="sec-remote">Remote access</option>
         <option value="sec-jobs">Jobs</option>
         <option value="sec-drafts">Drafted emails</option>
+        <option value="sec-sent">Sent emails</option>
         <option value="sec-data">Scraped data</option>
       </select>
       <button id="installBtn" class="install-btn" hidden>Install app</button>
@@ -459,15 +463,31 @@
 
   <section id="sec-prompt">
     <h2>AI outreach prompt</h2>
+
+    <p class="meta" style="margin-bottom:6px">Company profile — automatically added as context for every draft.</p>
+    <div class="field-grid" style="margin-bottom:14px">
+      <div><label>Company name</label><input type="text" id="companyName"></div>
+      <div><label>Website</label><input type="text" id="companyWebsite" placeholder="https://..."></div>
+      <div class="field-full"><label>About the company</label><input type="text" id="companyDescription" placeholder="A sentence or two the LLM can draw on"></div>
+    </div>
+    <div class="btn-row" style="margin-top:0;margin-bottom:14px">
+      <button id="companySaveBtn">Save company profile</button>
+    </div>
+
+    <p class="meta" style="margin-bottom:6px">Model — which local Ollama model drafts each email.</p>
+    <div class="row" style="margin-bottom:14px">
+      <select id="modelSelect" class="nav-select" style="flex:1"></select>
+    </div>
+
     <p class="meta" style="margin-bottom:10px">
-      Controls what the local LLM searches for, what services it offers, and how it writes each email.
+      Instructions — what the LLM searches for, what services it offers, and how it writes each email.
       Each business is sent as JSON with these fields: <code>name, category, rating, review_count,
       address, has_website, reviews[], reddit_mentions[], other_mentions[]</code>. Must end by asking
       for JSON output shaped <code>{"pitch": "...", "subject": "...", "body": "..."}</code> or drafting will break.
     </p>
     <textarea id="promptText" rows="14" style="width:100%;background:#0d0f13;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:12px;font-family:inherit;line-height:1.5;resize:vertical;"></textarea>
     <div class="btn-row">
-      <button id="promptSaveBtn">Save</button>
+      <button id="promptSaveBtn">Save instructions</button>
       <button class="btn-secondary" id="promptResetBtn">Reset to default</button>
     </div>
     <div class="status-line" id="promptStatus"></div>
@@ -494,10 +514,16 @@
     <div id="drafts" class="empty">Loading…</div>
   </section>
 
+  <section id="sec-sent">
+    <h2>Sent emails</h2>
+    <div id="sentTableWrap" class="table-wrap"><div id="sentTable" class="empty">Loading…</div></div>
+  </section>
+
   <section id="sec-data">
     <h2>Scraped data</h2>
     <div id="resultFiles" class="empty">Loading…</div>
     <div id="resultViewer" class="table-wrap" style="margin-top:10px"></div>
+    <div id="businessDetail" style="margin-top:10px"></div>
   </section>
 
   <p class="refresh-note">Auto-refreshes every 4s</p>
@@ -695,6 +721,35 @@ async function refreshDrafts() {
   `).join('');
 }
 
+async function refreshSentEmails() {
+  const res = await apiFetch('/drafts');
+  const drafts = await res.json();
+  const sent = drafts.filter(d => d.status === 'sent').sort((a, b) => (b.sent_at || '').localeCompare(a.sent_at || ''));
+  const el = $('sentTable');
+  if (!sent.length) {
+    el.className = 'empty';
+    el.textContent = 'No emails sent yet.';
+    return;
+  }
+  el.className = '';
+  el.innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Business</th><th>To</th><th>Subject</th><th>Pitch</th><th>Sent</th></tr></thead>
+      <tbody>
+        ${sent.map(d => `
+          <tr>
+            <td title="${escapeHtml(d.business_name || '')}">${escapeHtml(d.business_name || '')}</td>
+            <td title="${escapeHtml(d.to)}">${escapeHtml(d.to)}</td>
+            <td title="${escapeHtml(d.subject)}">${escapeHtml(d.subject)}</td>
+            <td>${escapeHtml(d.pitch || '')}</td>
+            <td>${timeAgo(d.sent_at)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 async function sendDrafts(body) {
   $('sendSelectedBtn').disabled = true;
   $('sendAllBtn').disabled = true;
@@ -710,6 +765,7 @@ async function sendDrafts(body) {
     $('sendStatus').textContent = `Sent ${data.sent}, failed ${data.failed}.`;
     $('sendStatus').className = 'status-line ' + (data.failed ? 'bad' : 'ok');
     await refreshDrafts();
+    await refreshSentEmails();
     await refreshStats();
   } catch (e) {
     $('sendStatus').textContent = 'Send request failed: ' + e;
@@ -758,13 +814,16 @@ async function refreshResultFiles() {
   });
 }
 
+let currentResultRows = [];
+
 async function viewResultFile(file) {
   const res = await apiFetch('/results/' + encodeURIComponent(file));
   const data = await res.json();
-  const rows = data.results || [];
+  currentResultRows = data.results || [];
   const cols = ['name', 'category', 'rating', 'review_count', 'address', 'phone', 'email', 'website'];
   const viewer = $('resultViewer');
-  if (!rows.length) {
+  $('businessDetail').innerHTML = '';
+  if (!currentResultRows.length) {
     viewer.innerHTML = '<p class="empty">No businesses in this file.</p>';
     return;
   }
@@ -772,9 +831,48 @@ async function viewResultFile(file) {
     <table class="data-table">
       <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
       <tbody>
-        ${rows.map(r => `<tr>${cols.map(c => `<td title="${escapeHtml(String(r[c] ?? ''))}">${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`).join('')}
+        ${currentResultRows.map((r, i) => `
+          <tr class="clickable-row" data-idx="${i}">
+            ${cols.map(c => `<td title="${escapeHtml(String(r[c] ?? ''))}">${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}
+          </tr>
+        `).join('')}
       </tbody>
     </table>
+  `;
+  viewer.querySelectorAll('.clickable-row').forEach(row => {
+    row.addEventListener('click', () => showBusinessDetail(currentResultRows[parseInt(row.dataset.idx, 10)]));
+  });
+}
+
+function showBusinessDetail(biz) {
+  const fields = [
+    ['Category', biz.category], ['Rating', biz.rating], ['Reviews', biz.review_count],
+    ['Price level', biz.price_level], ['Address', biz.address], ['Phone', biz.phone],
+    ['Email', biz.email], ['Website', biz.website], ['Hours', biz.hours],
+    ['Coordinates', (biz.latitude != null && biz.longitude != null) ? `${biz.latitude}, ${biz.longitude}` : null],
+    ['Maps link', biz.google_maps_url],
+  ].filter(([, v]) => v);
+
+  const reviews = biz.reviews || [];
+
+  $('businessDetail').innerHTML = `
+    <div class="item">
+      <div class="item-top"><span class="item-title">${escapeHtml(biz.name || '')}</span></div>
+      <div class="meta" style="margin-top:8px">
+        ${fields.map(([k, v]) => `<div><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</div>`).join('')}
+      </div>
+      ${reviews.length ? `
+        <details open style="margin-top:10px">
+          <summary>${reviews.length} review(s)</summary>
+          ${reviews.map(r => `
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+              <div class="meta"><strong>${escapeHtml(r.author || 'Anonymous')}</strong> · ${escapeHtml(String(r.rating ?? ''))}★ · ${escapeHtml(r.relative_time || '')}</div>
+              <div style="font-size:13px;margin-top:4px">${escapeHtml(r.text || '')}</div>
+            </div>
+          `).join('')}
+        </details>
+      ` : ''}
+    </div>
   `;
 }
 
@@ -908,7 +1006,58 @@ async function loadPrompt() {
   const res = await apiFetch('/settings/prompt');
   const data = await res.json();
   $('promptText').value = data.system_prompt;
+
+  const select = $('modelSelect');
+  const models = data.available_models && data.available_models.length
+    ? data.available_models
+    : [data.model];
+  select.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  select.value = data.model;
+  if (!data.available_models || !data.available_models.length) {
+    select.title = "Couldn't reach Ollama to list models - showing the currently configured one only.";
+  }
 }
+
+async function onModelChange() {
+  const model = $('modelSelect').value;
+  await apiFetch('/settings/prompt/model', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
+  $('promptStatus').textContent = `Model set to ${model}.`;
+  $('promptStatus').className = 'status-line ok';
+}
+
+async function loadCompanyProfile() {
+  const res = await apiFetch('/settings/company');
+  const data = await res.json();
+  $('companyName').value = data.company_name || '';
+  $('companyWebsite').value = data.website || '';
+  $('companyDescription').value = data.description || '';
+}
+
+async function saveCompanyProfile() {
+  $('companySaveBtn').disabled = true;
+  try {
+    await apiFetch('/settings/company', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_name: $('companyName').value,
+        website: $('companyWebsite').value,
+        description: $('companyDescription').value,
+      }),
+    });
+    $('promptStatus').textContent = 'Company profile saved.';
+    $('promptStatus').className = 'status-line ok';
+  } finally {
+    $('companySaveBtn').disabled = false;
+  }
+}
+
+$('modelSelect').addEventListener('change', onModelChange);
+$('companySaveBtn').addEventListener('click', saveCompanyProfile);
 
 async function savePrompt() {
   $('promptSaveBtn').disabled = true;
@@ -984,15 +1133,27 @@ async function loadPairingQr() {
   } catch (e) { /* auth gate already shown by apiFetch if needed */ }
 }
 
-function refreshAll() {
+// Read-only, safe to silently re-render at any time - nothing here is
+// something you'd be mid-typing into.
+function refreshLists() {
   refreshJobs();
   refreshDrafts();
-  refreshLive();
+  refreshSentEmails();
   refreshStats();
   refreshResultFiles();
+}
+
+// Everything, including settings forms - only called on initial sign-in.
+// Re-running this later would silently blow away an in-progress edit
+// (e.g. typing in the company description) the moment a background
+// refresh fires, which is exactly the "fucked up" behavior being fixed.
+function refreshAll() {
+  refreshLists();
+  refreshLive();
   loadMailSettings();
   loadWhatsAppSettings();
   loadPrompt();
+  loadCompanyProfile();
   setupRemoteAccess();
 }
 
@@ -1004,10 +1165,24 @@ function refreshAll() {
     showAuthGate();
   }
 })();
-setInterval(refreshStats, 5000);
-setInterval(refreshJobs, 4000);
-setInterval(refreshDrafts, 4000);
+
+// The live screenshot is a passive image, not a form - a fast poll here
+// doesn't disrupt anything, so it's the one thing kept on a timer.
 setInterval(refreshLive, 1500);
+
+// Everything else updates on page load, right after you take an action
+// (already wired into scrape/send/save), when you switch back to this
+// tab, or by hitting Refresh - never on a background timer that can
+// steal focus or reset your scroll position mid-use.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && getToken()) refreshLists();
+});
+window.addEventListener('focus', () => {
+  if (getToken()) refreshLists();
+});
+$('refreshBtn').addEventListener('click', () => {
+  if (getToken()) refreshLists();
+});
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});

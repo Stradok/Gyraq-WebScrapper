@@ -10,14 +10,23 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import config
 from .auth import get_or_create_token, verify_token
+from .company_profile import get_company_profile, save_company_profile
 from .drafts_store import get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft
 from .jobs import Job, job_store
 from .live_view import get_frame
 from .mail_settings import masked_mail_settings, save_mail_settings
 from .mailer import MailNotConfigured, send_email, test_imap, test_smtp
+from .ollama_client import list_models
 from .pairing import consume_pairing_code, create_pairing_code
-from .prompt_settings import DEFAULT_SYSTEM_PROMPT, get_system_prompt, reset_system_prompt, save_system_prompt
+from .prompt_settings import (
+    DEFAULT_SYSTEM_PROMPT,
+    get_ollama_model,
+    get_system_prompt,
+    reset_system_prompt,
+    save_ollama_model,
+    save_system_prompt,
+)
 from .qr import make_qr_png
 from .results_store import list_result_files, read_result_file
 from .stats import get_stats
@@ -112,6 +121,16 @@ class WhatsAppSettingsRequest(BaseModel):
 
 class PromptRequest(BaseModel):
     system_prompt: str = Field(..., min_length=1)
+
+
+class CompanyProfileRequest(BaseModel):
+    company_name: str | None = None
+    website: str | None = None
+    description: str | None = None
+
+
+class ModelRequest(BaseModel):
+    model: str = Field(..., min_length=1)
 
 
 def _summary(job: Job) -> dict:
@@ -262,7 +281,12 @@ def stats() -> dict:
 
 @app.get("/settings/prompt")
 def get_prompt_route() -> dict:
-    return {"system_prompt": get_system_prompt(), "default_prompt": DEFAULT_SYSTEM_PROMPT}
+    return {
+        "system_prompt": get_system_prompt(),
+        "default_prompt": DEFAULT_SYSTEM_PROMPT,
+        "model": get_ollama_model(),
+        "available_models": list_models(),
+    }
 
 
 @app.post("/settings/prompt")
@@ -273,6 +297,22 @@ def update_prompt_route(req: PromptRequest) -> dict:
 @app.post("/settings/prompt/reset")
 def reset_prompt_route() -> dict:
     return {"system_prompt": reset_system_prompt()}
+
+
+@app.post("/settings/prompt/model")
+def update_model_route(req: ModelRequest) -> dict:
+    return {"model": save_ollama_model(req.model)}
+
+
+@app.get("/settings/company")
+def get_company_route() -> dict:
+    return get_company_profile()
+
+
+@app.post("/settings/company")
+def update_company_route(req: CompanyProfileRequest) -> dict:
+    values = req.model_dump(exclude_unset=True)
+    return save_company_profile(values)
 
 
 @app.get("/settings/whatsapp")

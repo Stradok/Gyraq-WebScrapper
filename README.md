@@ -172,8 +172,14 @@ testing on each target OS to get right.
 
 Both setup paths serve a small web page at `http://localhost:8080` (or
 whatever `API_PORT` you set) — a live view of running/finished searches
-and generated drafts, auto-refreshing every few seconds. No install, it's
-just a page your browser loads.
+and generated drafts. No install, it's just a page your browser loads.
+
+Data (jobs/drafts/stats) refreshes on page load, when you switch back to
+the tab, right after an action (scraping, sending, saving), or by hitting
+**⟳ Refresh** in the header — deliberately *not* on a constant background
+timer, since that used to silently overwrite whatever you were mid-typing
+into a settings field. The live screenshot (below) is the one exception —
+it's a passive image, not a form, so it stays on a fast refresh.
 
 It also shows an actual **live screenshot** of the page the browser is on
 right now (the search results, or whichever business listing it's
@@ -416,14 +422,24 @@ otherwise go out literally as written.
 
 ### Customizing what it searches for and how it writes
 
-The whole system prompt above — the service menu, the search/evidence
-rules, the tone — is editable from the web UI's **AI outreach prompt**
-section, not just in code. Each business is handed to the model as JSON
-with `name, category, rating, review_count, address, has_website,
-reviews[], reddit_mentions[], other_mentions[]`; the prompt just has to
-keep asking for `{"pitch": "...", "subject": "...", "body": "..."}` back
-or drafting breaks. **Reset to default** restores the built-in prompt.
-Edits take effect on the next scrape — no restart needed.
+The web UI's **AI outreach prompt** section has three parts, all editable
+without touching code or restarting anything:
+
+- **Company profile** — name, website, and a short description. This gets
+  automatically prepended as factual context on every draft, kept separate
+  from the instructions below so editing one can't accidentally break the
+  other.
+- **Model** — a dropdown of whatever models are actually installed in your
+  local Ollama (queried live via `/api/tags`), so switching models is a
+  pick-from-a-list, not an env var edit.
+- **Instructions** — the full system prompt: the service menu, the
+  search/evidence rules, the tone. Each business is handed to the model as
+  JSON with `name, category, rating, review_count, address, has_website,
+  reviews[], reddit_mentions[], other_mentions[]`; the prompt just has to
+  keep asking for `{"pitch": "...", "subject": "...", "body": "..."}` back
+  or drafting breaks. **Reset to default** restores the built-in one.
+
+All three take effect on the next scrape — no restart needed.
 
 ### Reddit & review research
 
@@ -537,8 +553,14 @@ database — also available as JSON at `GET /stats`.
 The **Scraped data** panel lists every result file from `data/results/`
 by query and count; click one to load it into a table (name, category,
 rating, reviews, address, phone, email, website) right in the browser,
-instead of opening the JSON/CSV by hand. Backed by `GET /results` (list)
-and `GET /results/{filename}` (one file's full data).
+instead of opening the JSON/CSV by hand. **Click a row** to drill into
+that one business — every field, plus its full review text, not just what
+fits in the truncated table columns. Backed by `GET /results` (list) and
+`GET /results/{filename}` (one file's full data).
+
+The **Sent emails** panel is a dedicated table of everything actually
+sent (business, recipient, subject, pitch type, when) — separate from
+**Drafted emails**, which stays focused on what's pending review/retry.
 
 ## Configuration
 
@@ -591,7 +613,9 @@ src/queue_runner.py               worker loop: drains API jobs, then queries.yam
 src/maps_scraper.py               Playwright scraping logic
 src/email_finder.py               best-effort contact-email lookup from a business's website
 src/pitch_writer.py               calls local Ollama to draft a personalized outreach email
-src/prompt_settings.py            the editable system prompt (default + DB override) for pitch_writer
+src/prompt_settings.py            the editable system prompt + selected Ollama model (default + DB override)
+src/company_profile.py            company name/website/description, injected as context for pitch_writer
+src/ollama_client.py              lists installed Ollama models for the model-picker dropdown
 src/reputation_finder.py          searches Reddit/review sites for real complaints about a business
 src/drafts_store.py               drafts CRUD (pending/sent/failed) against the database
 src/mail_settings.py              SMTP/IMAP credentials CRUD against the database
