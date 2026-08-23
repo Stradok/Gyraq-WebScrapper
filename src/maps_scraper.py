@@ -179,17 +179,28 @@ class MapsScraper:
             self.seen_store.add(biz.place_id)
 
     def _collect_listing_links(self, max_results: int) -> list[tuple[str | None, str]]:
+        # Google Maps' results feed for a text search is capped by the
+        # current map viewport, not the query text - a broad location
+        # ("in Pakistan") doesn't search the whole country, Maps just picks
+        # a default viewport and the feed goes stable well under 100 real
+        # results for most categories. Verified live: zooming the map out
+        # and continuing to scroll reliably surfaces more genuine, on-topic
+        # results (lawyers in Lahore: 50 -> 90+, still all real law firms,
+        # not noise) - so when the feed goes stable, zoom out and keep
+        # trying instead of giving up, up to a bounded number of times.
+        MAX_ZOOM_OUTS = 6
         page = self.page
         feed = page.locator('div[role="feed"]').first
         seen: dict[str, str | None] = {}
         stable_rounds = 0
+        zoom_outs = 0
 
         def _new_count() -> int:
             if self.seen_store is None:
                 return len(seen)
             return sum(1 for href in seen if not self.seen_store.has(extract_place_id(href)))
 
-        while _new_count() < max_results and stable_rounds < 4:
+        while _new_count() < max_results:
             links = page.locator('div[role="feed"] a.hfpxzc')
             count = links.count()
             for i in range(count):
@@ -216,6 +227,20 @@ class MapsScraper:
                 stable_rounds += 1
             else:
                 stable_rounds = 0
+
+            if stable_rounds >= 4:
+                if zoom_outs >= MAX_ZOOM_OUTS:
+                    break
+                try:
+                    zoom_btn = page.locator('button[aria-label="Zoom out"]').first
+                    if zoom_btn.count() == 0 or not zoom_btn.is_enabled():
+                        break
+                    zoom_btn.click(timeout=2000)
+                except Exception:
+                    break
+                zoom_outs += 1
+                stable_rounds = 0
+                _jitter(1.0, 2.0)
 
         results = [(name, href) for href, name in seen.items()]
         if self.seen_store is not None:
