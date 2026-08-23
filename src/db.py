@@ -62,10 +62,14 @@ def _init_schema(conn: sqlite3.Connection) -> None:
                 status TEXT DEFAULT 'pending',
                 created_at TEXT,
                 sent_at TEXT,
-                error TEXT
+                error TEXT,
+                channel TEXT DEFAULT 'email'
             )
             """
         )
+        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(drafts)")}
+        if "channel" not in existing_cols:
+            conn.execute("ALTER TABLE drafts ADD COLUMN channel TEXT DEFAULT 'email'")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (

@@ -12,9 +12,10 @@ from .drafts_store import save_draft
 from .email_finder import find_email
 from .live_view import set_frame
 from .models import Business, Review
-from .pitch_writer import generate_pitch
+from .pitch_writer import generate_pitch, generate_whatsapp_pitch
 from .reputation_finder import find_reputation_signals
 from .seen_store import SeenStore, extract_place_id
+from .whatsapp import normalize_whatsapp_number
 
 log = logging.getLogger(__name__)
 
@@ -281,16 +282,36 @@ class MapsScraper:
 
         biz.reviews = self._extract_reviews(config.REVIEWS_PER_BUSINESS)
 
-        if config.GENERATE_PITCHES and biz.email:
+        if config.GENERATE_PITCHES and (biz.email or biz.phone):
             reputation = {}
             if config.RESEARCH_REPUTATION:
                 reputation = find_reputation_signals(
                     self.context, biz.name, biz.address, config.REPUTATION_TIMEOUT_MS
                 )
-            pitch = generate_pitch(biz, reputation)
-            if pitch:
-                save_draft(biz.email, pitch["subject"], pitch["body"], biz.name, pitch["pitch"])
-                log.info("Drafted %r pitch for %r -> %s", pitch["pitch"], biz.name, biz.email)
+
+            if biz.email:
+                pitch = generate_pitch(biz, reputation)
+                if pitch:
+                    save_draft(biz.email, pitch["subject"], pitch["body"], biz.name, pitch["pitch"])
+                    log.info("Drafted %r pitch for %r -> %s", pitch["pitch"], biz.name, biz.email)
+            else:
+                # No usable email - fall back to a WhatsApp draft if there's
+                # a phone number. Actually sending this cold still needs a
+                # Meta-approved template (see whatsapp.send_text); this just
+                # gets the draft written and ready for review.
+                wa_number = normalize_whatsapp_number(biz.phone)
+                if wa_number:
+                    pitch = generate_whatsapp_pitch(biz, reputation)
+                    if pitch:
+                        save_draft(
+                            wa_number, "", pitch["body"], biz.name, pitch["pitch"], channel="whatsapp"
+                        )
+                        log.info(
+                            "Drafted %r WhatsApp pitch for %r -> %s",
+                            pitch["pitch"],
+                            biz.name,
+                            wa_number,
+                        )
 
         return biz
 

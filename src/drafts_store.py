@@ -19,18 +19,24 @@ def _row_to_dict(row) -> dict:
         "created_at": row["created_at"],
         "sent_at": row["sent_at"],
         "error": row["error"],
+        "channel": row["channel"] or "email",
     }
 
 
 def save_draft(
-    to: str, subject: str, body: str, business_name: str | None = None, pitch: str | None = None
+    to: str,
+    subject: str,
+    body: str,
+    business_name: str | None = None,
+    pitch: str | None = None,
+    channel: str = "email",
 ) -> dict:
     created_at = _now()
     with db.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO drafts (business_name, to_email, subject, body, pitch, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-            (business_name, to, subject, body, pitch, created_at),
+            "INSERT INTO drafts (business_name, to_email, subject, body, pitch, status, created_at, channel) "
+            "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+            (business_name, to, subject, body, pitch, created_at, channel),
         )
         draft_id = cur.lastrowid
     return {
@@ -44,6 +50,7 @@ def save_draft(
         "created_at": created_at,
         "sent_at": None,
         "error": None,
+        "channel": channel,
     }
 
 

@@ -36,6 +36,7 @@ from .whatsapp import (
     list_inbox,
     parse_webhook_payload,
     record_incoming,
+    send_text as send_whatsapp_text,
     test_connection as test_whatsapp_connection,
     verify_webhook_signature,
 )
@@ -333,7 +334,15 @@ def send_drafts(req: SendDraftsRequest) -> dict:
         if draft is None:
             continue
         try:
-            send_email(draft["to"], draft["subject"], draft["body"])
+            if draft.get("channel") == "whatsapp":
+                # Only works if this contact has messaged us within the
+                # last 24h (a WhatsApp platform rule) - cold-starting a
+                # conversation needs a Meta-approved template, which isn't
+                # configured. That's a real, expected failure mode here,
+                # not a bug - Meta's own error message explains why.
+                send_whatsapp_text(draft["to"], draft["body"])
+            else:
+                send_email(draft["to"], draft["subject"], draft["body"])
             mark_sent(draft_id)
             sent += 1
         except Exception as e:

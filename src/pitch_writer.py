@@ -89,6 +89,29 @@ def _build_system_prompt() -> str:
     return preamble + base
 
 
+def _call_ollama(system_prompt: str, user_content: str) -> dict | None:
+    payload = json.dumps(
+        {
+            "model": get_ollama_model(),
+            "stream": False,
+            "format": "json",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"{config.OLLAMA_URL}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=config.OLLAMA_TIMEOUT_S) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return json.loads(data["message"]["content"])
+
+
 def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None:
     reputation = reputation or {}
     user_content = json.dumps(
@@ -115,28 +138,8 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
         }
     )
 
-    payload = json.dumps(
-        {
-            "model": get_ollama_model(),
-            "stream": False,
-            "format": "json",
-            "messages": [
-                {"role": "system", "content": _build_system_prompt()},
-                {"role": "user", "content": user_content},
-            ],
-        }
-    ).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{config.OLLAMA_URL}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=config.OLLAMA_TIMEOUT_S) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        parsed = json.loads(data["message"]["content"])
+        parsed = _call_ollama(_build_system_prompt(), user_content)
         subject = parsed["subject"]
         raw_body = _strip_model_signoff(parsed["body"].rstrip())
 
@@ -151,4 +154,62 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
         return {"pitch": parsed.get("pitch"), "subject": subject, "body": body}
     except Exception:
         log.warning("Pitch generation failed for %r", biz.name, exc_info=True)
+        return None
+
+
+_WHATSAPP_SYSTEM_PROMPT_SUFFIX = (
+    "\n\nOne more thing - this isn't an email, it's a WhatsApp message. Keep "
+    "it to 2-3 short sentences, under 300 characters total. No subject line. "
+    "No email-style sign-off block or footer - end with your CTA question "
+    "and stop. Same rules apply otherwise: no links, no markdown, no spam "
+    "phrases, single strongest proof point, sounds like a real person typed "
+    "it on their phone. Respond with ONLY this JSON, nothing else: "
+    '{"pitch": "voice_agent, website, automation, or lead_generation", "body": "..."}'
+)
+
+
+def generate_whatsapp_pitch(biz: Business, reputation: dict | None = None) -> dict | None:
+    """Used when no usable email exists for a business but a phone number
+    does. Produces a short message body only - no subject, no footer.
+    Actually SENDING this cold (see whatsapp.send_text) requires a
+    Meta-approved template, which isn't configured - this only covers
+    generating and storing the draft for review."""
+    reputation = reputation or {}
+    user_content = json.dumps(
+        {
+            "name": biz.name,
+            "category": biz.category,
+            "rating": biz.rating,
+            "review_count": biz.review_count,
+            "address": biz.address,
+            "has_website": bool(biz.website),
+            "reviews": [r.text for r in biz.reviews if r.text],
+            "reddit_mentions": [
+                {"title": r["title"], "snippet": r["snippet"]}
+                for r in reputation.get("reddit", [])
+            ],
+            "other_mentions": [
+                {"title": r["title"], "snippet": r["snippet"]}
+                for r in reputation.get("reviews", [])
+            ],
+            "linkedin_mentions": [
+                {"title": r["title"], "snippet": r["snippet"]}
+                for r in reputation.get("linkedin", [])
+            ],
+        }
+    )
+
+    try:
+        system_prompt = _build_system_prompt() + _WHATSAPP_SYSTEM_PROMPT_SUFFIX
+        parsed = _call_ollama(system_prompt, user_content)
+        raw_body = _strip_model_signoff(parsed["body"].rstrip())
+
+        violation = _violates_deliverability_rules("", raw_body)
+        if violation:
+            log.warning("WhatsApp pitch for %r rejected (%s), skipping draft", biz.name, violation)
+            return None
+
+        return {"pitch": parsed.get("pitch"), "body": raw_body}
+    except Exception:
+        log.warning("WhatsApp pitch generation failed for %r", biz.name, exc_info=True)
         return None

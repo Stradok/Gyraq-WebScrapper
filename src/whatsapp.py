@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import re
 import urllib.error
 import urllib.request
 
@@ -9,6 +10,15 @@ from .whatsapp_settings import get_whatsapp_settings
 
 GRAPH_API_VERSION = "v21.0"
 GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+
+
+def normalize_whatsapp_number(phone: str | None) -> str | None:
+    """The Graph API wants digits only, no "+", no spaces/dashes/parens -
+    Google Maps gives phone numbers like "+92 345 8456753"."""
+    if not phone:
+        return None
+    digits = re.sub(r"\D", "", phone)
+    return digits if len(digits) >= 8 else None
 
 
 def verify_webhook_signature(raw_body: bytes, signature_header: str | None, app_secret: str) -> bool:

@@ -780,18 +780,19 @@ async function refreshDrafts() {
           ${escapeHtml(d.business_name || d.to)}
         </span>
         <span>
+          <span class="badge">${d.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}</span>
           <span class="badge">${escapeHtml(d.pitch || '')}</span>
           <span class="badge ${d.status}">${d.status}</span>
         </span>
       </div>
       <div class="meta">To: ${escapeHtml(d.to)} · ${timeAgo(d.created_at)}${d.error ? ' · ' + escapeHtml(d.error) : ''}</div>
       <details class="draft-view">
-        <summary>${escapeHtml(d.subject)}</summary>
+        <summary>${d.channel === 'whatsapp' ? escapeHtml(d.body.slice(0, 60)) : escapeHtml(d.subject)}</summary>
         <pre>${escapeHtml(d.body)}</pre>
       </details>
       <div class="draft-edit" hidden>
         <div><label>To</label><input type="text" class="edit-to" value="${escapeHtml(d.to)}"></div>
-        <div><label>Subject</label><input type="text" class="edit-subject" value="${escapeHtml(d.subject)}"></div>
+        ${d.channel === 'whatsapp' ? '' : `<div><label>Subject</label><input type="text" class="edit-subject" value="${escapeHtml(d.subject)}"></div>`}
         <div><label>Body</label><textarea class="edit-body" rows="8">${escapeHtml(d.body)}</textarea></div>
         <div class="item-actions">
           <button data-action="save-draft" data-id="${d.id}">Save</button>
@@ -831,12 +832,13 @@ $('drafts').addEventListener('click', async (e) => {
     const item = draftItemEl(id);
     btn.disabled = true;
     try {
+      const subjectEl = item.querySelector('.edit-subject');
       await apiFetch(`/drafts/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: item.querySelector('.edit-to').value,
-          subject: item.querySelector('.edit-subject').value,
+          subject: subjectEl ? subjectEl.value : '',
           body: item.querySelector('.edit-body').value,
         }),
       });
