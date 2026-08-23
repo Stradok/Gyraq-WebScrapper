@@ -1171,15 +1171,9 @@ function refreshAll() {
 setInterval(refreshLive, 1500);
 
 // Everything else updates on page load, right after you take an action
-// (already wired into scrape/send/save), when you switch back to this
-// tab, or by hitting Refresh - never on a background timer that can
-// steal focus or reset your scroll position mid-use.
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && getToken()) refreshLists();
-});
-window.addEventListener('focus', () => {
-  if (getToken()) refreshLists();
-});
+// (already wired into scrape/send/save), or by hitting Refresh - no
+// background timer, no tab/window-focus trigger, nothing that can
+// re-render the page while you're reading it.
 $('refreshBtn').addEventListener('click', () => {
   if (getToken()) refreshLists();
 });

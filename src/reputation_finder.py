@@ -5,6 +5,9 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 log = logging.getLogger(__name__)
 
+# DuckDuckGo's HTML endpoint, not google.com/search - Google blocks headless
+# automation on the first request (redirects to /sorry/index, verified live),
+# while DDG's index still surfaces the same LinkedIn/review/forum pages.
 SEARCH_URL = "https://html.duckduckgo.com/html/?q={q}"
 
 
@@ -83,7 +86,12 @@ def find_reputation_signals(
             if "reddit.com" not in r["url"] and "google.com/maps" not in r["url"]
         ][:3]
 
-        return {"reddit": reddit, "reviews": reviews}
+        _jitter(1.0, 2.0)
+
+        linkedin_raw = _search_snippets(page, f'"{business_name}" {loc} linkedin')
+        linkedin = [r for r in linkedin_raw if "linkedin.com" in r["url"]][:2]
+
+        return {"reddit": reddit, "reviews": reviews, "linkedin": linkedin}
     except Exception:
         log.warning("Reputation research failed for %r", business_name, exc_info=True)
         return {}

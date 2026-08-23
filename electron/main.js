@@ -170,6 +170,20 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // No application menu (see below), so Reload/DevTools have no menu
+  // item or default accelerator - wire the standard shortcuts manually
+  // so a stale window (e.g. left open across an app update) can always
+  // be force-refreshed without having to quit and relaunch the app.
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+    const mod = input.control || input.meta;
+    if (mod && input.key.toLowerCase() === 'r') {
+      mainWindow.webContents.reloadIgnoringCache();
+    } else if (input.key === 'F12' || (mod && input.shift && input.key.toLowerCase() === 'i')) {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
 }
 
 app.whenReady().then(async () => {

@@ -48,6 +48,10 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
                 {"title": r["title"], "snippet": r["snippet"]}
                 for r in reputation.get("reviews", [])
             ],
+            "linkedin_mentions": [
+                {"title": r["title"], "snippet": r["snippet"]}
+                for r in reputation.get("linkedin", [])
+            ],
         }
     )
 
