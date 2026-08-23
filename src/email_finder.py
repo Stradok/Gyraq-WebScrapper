@@ -21,10 +21,74 @@ JUNK_DOMAINS = (
 
 CONTACT_PATHS = ("contact", "contact-us", "contactus")
 
+# Major consumer providers a typo'd domain most often means to be - listed
+# here so a near-miss (one edit away, e.g. "gamil.com") can be caught before
+# it ever reaches a send attempt. Not every wrong email is catchable this
+# way (a wrong-but-valid mailbox slips through no matter what), but a typo
+# of one of these specific well-known domains is the single most common
+# case, verified against a real bounce (skinsavvy640@gamil.com).
+_MAJOR_EMAIL_DOMAINS = (
+    "gmail.com",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "icloud.com",
+    "aol.com",
+    "protonmail.com",
+)
+
+# Real, currently-operating domains that happen to be within edit distance
+# 2 of one of the above - without this, a legitimate address would get
+# silently treated as a typo (a false positive here is worse than the typo
+# itself: a real, working email that would have been fine silently never
+# gets a draft, with no bounce or any other visible signal that anything
+# was skipped).
+_LEGITIMATE_LOOKALIKES = frozenset(
+    {
+        "mail.com",
+        "googlemail.com",
+        "ymail.com",
+        "live.com",
+        "msn.com",
+        "yahoo.co.uk",
+        "yahoo.co.in",
+        "yahoo.ca",
+        "yahoo.com.au",
+        "hotmail.co.uk",
+        "hotmail.fr",
+        "outlook.co.uk",
+        "outlook.de",
+        "aol.co.uk",
+    }
+)
+
+
+def _edit_distance_le(a: str, b: str, max_dist: int) -> bool:
+    if abs(len(a) - len(b)) > max_dist:
+        return False
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+        prev = cur
+    return prev[-1] <= max_dist
+
+
+def _is_likely_typo_domain(domain: str) -> bool:
+    if domain in _LEGITIMATE_LOOKALIKES:
+        return False
+    return any(
+        domain != major and _edit_distance_le(domain, major, 2)
+        for major in _MAJOR_EMAIL_DOMAINS
+    )
+
 
 def _is_junk(email: str) -> bool:
     domain = email.split("@")[-1].lower()
-    return any(domain == j or domain.endswith("." + j) for j in JUNK_DOMAINS)
+    if any(domain == j or domain.endswith("." + j) for j in JUNK_DOMAINS):
+        return True
+    return _is_likely_typo_domain(domain)
 
 
 def _extract_from_page(page) -> str | None:
