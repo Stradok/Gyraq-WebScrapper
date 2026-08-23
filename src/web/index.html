@@ -1081,7 +1081,7 @@ async function loadContactDetail(phone) {
       ${c.thread.map(m => `
         <div class="thread-msg ${m.direction} ${m.status === 'failed' ? 'failed' : ''}">
           ${escapeHtml(m.text)}
-          <span class="ts">${m.direction === 'in' ? 'them' : 'bot'} · ${timeAgo(m.ts)}${m.status === 'failed' ? ' · failed to send' : ''}</span>
+          <span class="ts">${m.direction === 'in' ? 'them' : 'bot'} · ${timeAgo(m.ts)}${m.duration_ms != null ? ' · replied in ' + (m.duration_ms / 1000).toFixed(1) + 's' : ''}${m.status === 'failed' ? ' · failed to send' : ''}</span>
         </div>
       `).join('') || '<div class="meta">No messages recorded yet.</div>'}
     </div>
@@ -1494,9 +1494,15 @@ async function testChatbot() {
       body: JSON.stringify({ message }),
     });
     const data = await res.json();
+    const secs = data.elapsed_ms != null ? (data.elapsed_ms / 1000).toFixed(1) + 's' : '';
     $('chatbotTestOut').innerHTML = data.ok
-      ? `<div class="thread"><div class="thread-msg in">${escapeHtml(message)}</div><div class="thread-msg out">${escapeHtml(data.reply || '(empty reply)')}</div></div>`
-      : `<div class="status-line bad">${escapeHtml(data.error)}</div>`;
+      ? `<div class="thread">
+           <div class="thread-msg in">${escapeHtml(message)}</div>
+           <div class="thread-msg out">${escapeHtml(data.reply || '(empty reply)')}
+             <span class="ts">${escapeHtml(data.model || '')} · replied in ${secs}</span>
+           </div>
+         </div>`
+      : `<div class="status-line bad">${escapeHtml(data.error)}${secs ? ' (after ' + secs + ')' : ''}</div>`;
   } finally {
     $('chatbotTestBtn').disabled = false;
   }

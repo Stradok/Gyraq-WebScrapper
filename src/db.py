@@ -97,10 +97,14 @@ def _init_schema(conn: sqlite3.Connection) -> None:
                 text TEXT,
                 status TEXT,
                 error TEXT,
-                created_at TEXT
+                created_at TEXT,
+                duration_ms INTEGER
             )
             """
         )
+        outbox_cols = {row["name"] for row in conn.execute("PRAGMA table_info(whatsapp_outbox)")}
+        if "duration_ms" not in outbox_cols:
+            conn.execute("ALTER TABLE whatsapp_outbox ADD COLUMN duration_ms INTEGER")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS contacts (

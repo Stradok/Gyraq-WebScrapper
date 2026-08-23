@@ -444,17 +444,29 @@ class ChatbotTestRequest(BaseModel):
 def test_chatbot_route(req: ChatbotTestRequest) -> dict:
     """Preview what the bot would reply, without sending anything or
     touching the real contact record."""
+    import time
+
     from .whatsapp_bot import _build_system_prompt, _call_ollama_chat
 
+    started = time.monotonic()
     try:
         messages = [
             {"role": "system", "content": _build_system_prompt(None)},
             {"role": "user", "content": req.message},
         ]
         reply = _call_ollama_chat(messages)
-        return {"ok": True, "reply": reply}
+        return {
+            "ok": True,
+            "reply": reply,
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "model": get_whatsapp_model(),
+        }
     except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        return {
+            "ok": False,
+            "error": f"{type(e).__name__}: {e}",
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+        }
 
 
 @app.get("/settings/company")
@@ -544,14 +556,16 @@ def _auto_reply(from_number: str, text: str) -> None:
     send_text) - no template required. Never lets a reply/send failure
     break webhook processing; the reply (or failure) is always recorded
     so it shows up in the contact's thread either way."""
-    reply, _contact = generate_reply(from_number, text)
+    reply, _contact, elapsed_ms = generate_reply(from_number, text)
     if not reply:
         return
     try:
         send_whatsapp_text(from_number, reply)
-        record_outgoing(from_number, reply, "sent")
+        record_outgoing(from_number, reply, "sent", duration_ms=elapsed_ms)
     except Exception as e:
-        record_outgoing(from_number, reply, "failed", f"{type(e).__name__}: {e}")
+        record_outgoing(
+            from_number, reply, "failed", f"{type(e).__name__}: {e}", duration_ms=elapsed_ms
+        )
         log.warning("Failed to send WhatsApp auto-reply to %r", from_number, exc_info=True)
 
 

@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 import urllib.request
 
 from . import config
@@ -138,10 +139,12 @@ def _call_ollama_chat(messages: list[dict]) -> str | None:
     return _strip_reasoning(data.get("message", {}).get("content", "")) or None
 
 
-def generate_reply(phone_number: str, incoming_text: str) -> tuple[str | None, dict]:
+def generate_reply(phone_number: str, incoming_text: str) -> tuple[str | None, dict, int]:
     """Links/updates the contact from this message, builds the conversation
     with prior history, and asks the model for a reply. Returns
-    (reply_text_or_None, contact)."""
+    (reply_text_or_None, contact, elapsed_ms) - the timing is how long the
+    model took, which is worth surfacing since it's the difference between
+    a reply that feels instant and one a real person gives up waiting on."""
     contact = link_contact(phone_number, incoming_text)
     thread = get_thread(phone_number, limit=12)
 
@@ -151,9 +154,11 @@ def generate_reply(phone_number: str, incoming_text: str) -> tuple[str | None, d
     if not thread or thread[-1]["text"] != incoming_text or thread[-1]["direction"] != "in":
         messages.append({"role": "user", "content": incoming_text})
 
+    started = time.monotonic()
     try:
         reply = _call_ollama_chat(messages)
-        return reply, contact
     except Exception:
         log.warning("WhatsApp chatbot reply generation failed for %r", phone_number, exc_info=True)
-        return None, contact
+        reply = None
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    return reply, contact, elapsed_ms

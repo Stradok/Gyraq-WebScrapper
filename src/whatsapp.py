@@ -111,12 +111,18 @@ def list_inbox(limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def record_outgoing(phone_number: str, text: str, status: str, error: str | None = None) -> None:
+def record_outgoing(
+    phone_number: str,
+    text: str,
+    status: str,
+    error: str | None = None,
+    duration_ms: int | None = None,
+) -> None:
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO whatsapp_outbox (phone_number, text, status, error, created_at) "
-            "VALUES (?, ?, ?, ?, datetime('now'))",
-            (phone_number, text, status, error),
+            "INSERT INTO whatsapp_outbox (phone_number, text, status, error, created_at, duration_ms) "
+            "VALUES (?, ?, ?, ?, datetime('now'), ?)",
+            (phone_number, text, status, error, duration_ms),
         )
 
 
@@ -130,14 +136,20 @@ def get_thread(phone_number: str, limit: int = 20) -> list[dict]:
             (phone_number, limit),
         ).fetchall()
         outgoing = conn.execute(
-            "SELECT text, created_at AS ts, status FROM whatsapp_outbox "
+            "SELECT text, created_at AS ts, status, duration_ms FROM whatsapp_outbox "
             "WHERE phone_number = ? ORDER BY id DESC LIMIT ?",
             (phone_number, limit),
         ).fetchall()
 
     thread = [{"direction": "in", "text": r["text"], "ts": r["ts"]} for r in incoming]
     thread += [
-        {"direction": "out", "text": r["text"], "ts": r["ts"], "status": r["status"]}
+        {
+            "direction": "out",
+            "text": r["text"],
+            "ts": r["ts"],
+            "status": r["status"],
+            "duration_ms": r["duration_ms"],
+        }
         for r in outgoing
     ]
     thread.sort(key=lambda m: m["ts"] or "")
