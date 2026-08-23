@@ -116,8 +116,10 @@ DEFAULT_SYSTEM_PROMPT = (
     "ALL-CAPS, and not a generic line like 'Quick question' - something "
     "specific and low-key, e.g. '[business name] - idea' or 'quick thought'. "
     ""
-    "Always sign off as exactly 'The Gyraq Team' - never a placeholder like "
-    "[Your Name]. Respond with ONLY this JSON, "
+    "Don't write your own sign-off or closing line - no 'Best,', no 'Thanks', "
+    "no team name, no placeholder like [Your Name]. End on your last content "
+    "sentence or the CTA; the email is signed automatically after your text. "
+    "Respond with ONLY this JSON, "
     'nothing else: {"pitch": "voice_agent, website, automation, or '
     'lead_generation", "subject": "...", "body": "..."}'
 )

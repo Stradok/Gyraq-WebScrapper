@@ -125,7 +125,7 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
             data = json.loads(resp.read().decode("utf-8"))
         parsed = json.loads(data["message"]["content"])
         subject = parsed["subject"]
-        raw_body = parsed["body"].rstrip()
+        raw_body = _strip_model_signoff(parsed["body"].rstrip())
 
         violation = _violates_deliverability_rules(subject, raw_body)
         if violation:
