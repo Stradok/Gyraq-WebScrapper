@@ -134,7 +134,6 @@ class CompanyProfileRequest(BaseModel):
     company_name: str | None = None
     website: str | None = None
     description: str | None = None
-    address: str | None = None
 
 
 class ModelRequest(BaseModel):

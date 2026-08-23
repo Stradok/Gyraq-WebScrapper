@@ -506,8 +506,7 @@
     <p class="meta" style="margin-bottom:6px">Company profile — automatically added as context for every draft.</p>
     <div class="field-grid" style="margin-bottom:14px">
       <div><label>Company name</label><input type="text" id="companyName"></div>
-      <div><label>Website</label><input type="text" id="companyWebsite" placeholder="https://..."></div>
-      <div class="field-full"><label>Business address</label><input type="text" id="companyAddress" placeholder="Shown in every email's footer, e.g. for CAN-SPAM/unsubscribe compliance"></div>
+      <div><label>Website</label><input type="text" id="companyWebsite" placeholder="https://... — the bare domain is shown in every email's footer"></div>
       <div class="field-full"><label>About the company</label><input type="text" id="companyDescription" placeholder="A sentence or two the LLM can draw on"></div>
     </div>
     <div class="btn-row" style="margin-top:0;margin-bottom:14px">
@@ -1168,7 +1167,6 @@ async function loadCompanyProfile() {
   const data = await res.json();
   $('companyName').value = data.company_name || '';
   $('companyWebsite').value = data.website || '';
-  $('companyAddress').value = data.address || '';
   $('companyDescription').value = data.description || '';
 }
 
@@ -1181,7 +1179,6 @@ async function saveCompanyProfile() {
       body: JSON.stringify({
         company_name: $('companyName').value,
         website: $('companyWebsite').value,
-        address: $('companyAddress').value,
         description: $('companyDescription').value,
       }),
     });

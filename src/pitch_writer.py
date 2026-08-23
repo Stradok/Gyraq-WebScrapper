@@ -10,13 +10,26 @@ from .prompt_settings import get_ollama_model, get_system_prompt
 
 log = logging.getLogger(__name__)
 
+_SCHEME_RE = re.compile(r"^\w+://", re.IGNORECASE)
+
+
+def _bare_domain(website: str) -> str:
+    """Strip scheme/path/www so the footer can name the company without
+    the deliverability guard ever seeing something that looks like a URL -
+    a bare domain like "gyraq.com" doesn't match _URL_RE below."""
+    domain = _SCHEME_RE.sub("", (website or "").strip()).split("/")[0]
+    return domain[4:] if domain.lower().startswith("www.") else domain
+
+
 # The sign-off is deterministic, not left to the model - verified live that
 # a local model skips "Always sign off as X" some of the time even when
 # told to, so this is appended in code instead of trusted to prompt-following.
-FOOTER = (
-    "\n\nThe {company_name} Team"
-    '\n\n—\n{company_name}\n{address}\nDon\'t want to hear from us? Just reply "unsubscribe".'
-)
+# No physical address (dropped after a placeholder leaked into a real send) -
+# just the team name and, if set, the bare company domain.
+def _footer(company_name: str, website: str) -> str:
+    domain = _bare_domain(website)
+    domain_line = f"\n{domain}" if domain else ""
+    return f'\n\nThe {company_name} Team{domain_line}\n\nDon\'t want to hear from us? Just reply "unsubscribe".'
 
 # Hard backstop behind the prompt's own deliverability instructions - the
 # prompt is best-effort (a local model won't follow it 100% of the time),
@@ -134,8 +147,7 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
 
         profile = get_company_profile()
         company_name = profile.get("company_name") or "Gyraq"
-        address = profile.get("address") or config.COMPANY_ADDRESS
-        body = raw_body + FOOTER.format(company_name=company_name, address=address)
+        body = raw_body + _footer(company_name, profile.get("website") or "")
         return {"pitch": parsed.get("pitch"), "subject": subject, "body": body}
     except Exception:
         log.warning("Pitch generation failed for %r", biz.name, exc_info=True)

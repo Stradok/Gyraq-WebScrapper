@@ -16,7 +16,6 @@ services:
       RESEARCH_REPUTATION: "true"
       OLLAMA_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: gemma3:12b
-      COMPANY_ADDRESS: "[YOUR BUSINESS ADDRESS HERE]"
       HEADLESS: "true"
       LOG_LEVEL: INFO
     ports:

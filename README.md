@@ -415,10 +415,12 @@ model pulled — `OLLAMA_MODEL` defaults to `gemma3:12b`). The scraper reaches
 it at `OLLAMA_URL` (defaults to `http://host.docker.internal:11434`, which
 resolves to the host machine from inside the container).
 
-**Before sending anything for real**, set `COMPANY_ADDRESS` to your actual
-business address — commercial email conventionally requires one, and the
-default is a placeholder (`[YOUR BUSINESS ADDRESS HERE]`) that will
-otherwise go out literally as written.
+The email footer signs off with your company name (from the **AI outreach
+prompt** section's company profile) and, if a website is set there, its bare
+domain — no physical address, no link. If your outreach needs to include a
+physical mailing address for legal reasons (e.g. US CAN-SPAM), add it
+yourself in the company profile's "About the company" field or edit the
+footer logic in `src/pitch_writer.py`.
 
 ### Customizing what it searches for and how it writes
 
@@ -578,7 +580,6 @@ Set these as environment variables (see `docker-compose.yml`):
 | `OLLAMA_URL` | `http://host.docker.internal:11434` | Where the scraper reaches your local Ollama server |
 | `OLLAMA_MODEL` | `gemma3:12b` | Which pulled Ollama model to use for drafting |
 | `OLLAMA_TIMEOUT_S` | `120` | Timeout per draft (covers Ollama's cold-start model load) |
-| `COMPANY_ADDRESS` | `[YOUR BUSINESS ADDRESS HERE]` | Appended to every draft's footer — set this before sending anything real |
 | `RESEARCH_REPUTATION` | `false` (`true` in `docker-compose.yml`) | Search Reddit/review sites for real complaints to ground pitches in |
 | `REPUTATION_TIMEOUT_MS` | `15000` | Timeout for each reputation search |
 | `DEFAULT_MAX_RESULTS` | `60` | Used when a query entry doesn't set `max_results` |

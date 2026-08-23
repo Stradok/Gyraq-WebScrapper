@@ -38,7 +38,6 @@ GENERATE_PITCHES = _bool("GENERATE_PITCHES", False)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:12b")
 OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT_S", "120"))
-COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "[YOUR BUSINESS ADDRESS HERE]")
 
 RESEARCH_REPUTATION = _bool("RESEARCH_REPUTATION", False)
 REPUTATION_TIMEOUT_MS = int(os.environ.get("REPUTATION_TIMEOUT_MS", "15000"))
