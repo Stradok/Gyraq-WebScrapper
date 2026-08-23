@@ -91,7 +91,14 @@ def find_reputation_signals(
         linkedin_raw = _search_snippets(page, f'"{business_name}" {loc} linkedin')
         linkedin = [r for r in linkedin_raw if "linkedin.com" in r["url"]][:2]
 
-        return {"reddit": reddit, "reviews": reviews, "linkedin": linkedin}
+        _jitter(1.0, 2.0)
+
+        social_raw = _search_snippets(page, f'"{business_name}" {loc} instagram OR facebook')
+        social = [
+            r for r in social_raw if "instagram.com" in r["url"] or "facebook.com" in r["url"]
+        ][:2]
+
+        return {"reddit": reddit, "reviews": reviews, "linkedin": linkedin, "social": social}
     except Exception:
         log.warning("Reputation research failed for %r", business_name, exc_info=True)
         return {}

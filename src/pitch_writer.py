@@ -112,9 +112,8 @@ def _call_ollama(system_prompt: str, user_content: str) -> dict | None:
     return json.loads(data["message"]["content"])
 
 
-def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None:
-    reputation = reputation or {}
-    user_content = json.dumps(
+def _build_user_content(biz: Business, reputation: dict) -> str:
+    return json.dumps(
         {
             "name": biz.name,
             "category": biz.category,
@@ -135,8 +134,17 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
                 {"title": r["title"], "snippet": r["snippet"]}
                 for r in reputation.get("linkedin", [])
             ],
+            "social_mentions": [
+                {"title": r["title"], "snippet": r["snippet"]}
+                for r in reputation.get("social", [])
+            ],
         }
     )
+
+
+def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None:
+    reputation = reputation or {}
+    user_content = _build_user_content(biz, reputation)
 
     try:
         parsed = _call_ollama(_build_system_prompt(), user_content)
@@ -175,29 +183,7 @@ def generate_whatsapp_pitch(biz: Business, reputation: dict | None = None) -> di
     Meta-approved template, which isn't configured - this only covers
     generating and storing the draft for review."""
     reputation = reputation or {}
-    user_content = json.dumps(
-        {
-            "name": biz.name,
-            "category": biz.category,
-            "rating": biz.rating,
-            "review_count": biz.review_count,
-            "address": biz.address,
-            "has_website": bool(biz.website),
-            "reviews": [r.text for r in biz.reviews if r.text],
-            "reddit_mentions": [
-                {"title": r["title"], "snippet": r["snippet"]}
-                for r in reputation.get("reddit", [])
-            ],
-            "other_mentions": [
-                {"title": r["title"], "snippet": r["snippet"]}
-                for r in reputation.get("reviews", [])
-            ],
-            "linkedin_mentions": [
-                {"title": r["title"], "snippet": r["snippet"]}
-                for r in reputation.get("linkedin", [])
-            ],
-        }
-    )
+    user_content = _build_user_content(biz, reputation)
 
     try:
         system_prompt = _build_system_prompt() + _WHATSAPP_SYSTEM_PROMPT_SUFFIX
