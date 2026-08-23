@@ -1326,7 +1326,9 @@ setInterval(refreshLive, 1500);
 // background timer, no tab/window-focus trigger, nothing that can
 // re-render the page while you're reading it.
 $('refreshBtn').addEventListener('click', () => {
-  if (getToken()) refreshLists();
+  // A full page reload, not just a data re-fetch - guarantees fresh JS/HTML
+  // too, not just fresh data, so this always shows the latest app version.
+  location.reload();
 });
 
 if ('serviceWorker' in navigator) {
