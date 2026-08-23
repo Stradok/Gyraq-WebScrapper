@@ -414,6 +414,17 @@ business address — commercial email conventionally requires one, and the
 default is a placeholder (`[YOUR BUSINESS ADDRESS HERE]`) that will
 otherwise go out literally as written.
 
+### Customizing what it searches for and how it writes
+
+The whole system prompt above — the service menu, the search/evidence
+rules, the tone — is editable from the web UI's **AI outreach prompt**
+section, not just in code. Each business is handed to the model as JSON
+with `name, category, rating, review_count, address, has_website,
+reviews[], reddit_mentions[], other_mentions[]`; the prompt just has to
+keep asking for `{"pitch": "...", "subject": "...", "body": "..."}` back
+or drafting breaks. **Reset to default** restores the built-in prompt.
+Edits take effect on the next scrape — no restart needed.
+
 ### Reddit & review research
 
 When `RESEARCH_REPUTATION=true` (on by default in `docker-compose.yml`),
@@ -580,6 +591,7 @@ src/queue_runner.py               worker loop: drains API jobs, then queries.yam
 src/maps_scraper.py               Playwright scraping logic
 src/email_finder.py               best-effort contact-email lookup from a business's website
 src/pitch_writer.py               calls local Ollama to draft a personalized outreach email
+src/prompt_settings.py            the editable system prompt (default + DB override) for pitch_writer
 src/reputation_finder.py          searches Reddit/review sites for real complaints about a business
 src/drafts_store.py               drafts CRUD (pending/sent/failed) against the database
 src/mail_settings.py              SMTP/IMAP credentials CRUD against the database

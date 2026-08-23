@@ -28,13 +28,24 @@ def send_email(to: str, subject: str, body: str) -> None:
     user = settings["smtp_user"]
     password = settings.get("smtp_password") or ""
 
-    if settings.get("smtp_use_tls", True):
+    # Port 465 is implicit TLS (SMTPS) by universal convention - the
+    # server expects an encrypted handshake from the very first byte.
+    # Sending it a plaintext STARTTLS-style greeting (what the "use TLS"
+    # toggle used to trigger regardless of port) makes it hang and then
+    # drop the connection - exactly the "unexpectedly closed" failure
+    # this fixes. Port 587 (or anything else) is plaintext-then-upgrade,
+    # so STARTTLS is correct there when the toggle is on.
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=20, context=ssl.create_default_context()) as server:
+            server.login(user, password)
+            server.send_message(msg)
+    elif settings.get("smtp_use_tls", True):
         with smtplib.SMTP(host, port, timeout=20) as server:
             server.starttls(context=ssl.create_default_context())
             server.login(user, password)
             server.send_message(msg)
     else:
-        with smtplib.SMTP_SSL(host, port, timeout=20, context=ssl.create_default_context()) as server:
+        with smtplib.SMTP(host, port, timeout=20) as server:
             server.login(user, password)
             server.send_message(msg)
 

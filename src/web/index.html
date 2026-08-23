@@ -362,6 +362,7 @@
         <option value="sec-search">New search</option>
         <option value="sec-live">Live view</option>
         <option value="sec-connections">Connections</option>
+        <option value="sec-prompt">AI outreach prompt</option>
         <option value="sec-remote">Remote access</option>
         <option value="sec-jobs">Jobs</option>
         <option value="sec-drafts">Drafted emails</option>
@@ -454,6 +455,22 @@
       <div class="status-line" id="wStatus"></div>
       <p class="meta" id="wWebhookUrl" style="margin-top:10px"></p>
     </div>
+  </section>
+
+  <section id="sec-prompt">
+    <h2>AI outreach prompt</h2>
+    <p class="meta" style="margin-bottom:10px">
+      Controls what the local LLM searches for, what services it offers, and how it writes each email.
+      Each business is sent as JSON with these fields: <code>name, category, rating, review_count,
+      address, has_website, reviews[], reddit_mentions[], other_mentions[]</code>. Must end by asking
+      for JSON output shaped <code>{"pitch": "...", "subject": "...", "body": "..."}</code> or drafting will break.
+    </p>
+    <textarea id="promptText" rows="14" style="width:100%;background:#0d0f13;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:12px;font-family:inherit;line-height:1.5;resize:vertical;"></textarea>
+    <div class="btn-row">
+      <button id="promptSaveBtn">Save</button>
+      <button class="btn-secondary" id="promptResetBtn">Reset to default</button>
+    </div>
+    <div class="status-line" id="promptStatus"></div>
   </section>
 
   <section id="sec-remote">
@@ -887,6 +904,39 @@ async function testWhatsApp() {
 $('wSaveBtn').addEventListener('click', saveWhatsAppSettings);
 $('wTestBtn').addEventListener('click', testWhatsApp);
 
+async function loadPrompt() {
+  const res = await apiFetch('/settings/prompt');
+  const data = await res.json();
+  $('promptText').value = data.system_prompt;
+}
+
+async function savePrompt() {
+  $('promptSaveBtn').disabled = true;
+  try {
+    await apiFetch('/settings/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system_prompt: $('promptText').value }),
+    });
+    $('promptStatus').textContent = 'Saved. Takes effect on the next drafted email.';
+    $('promptStatus').className = 'status-line ok';
+  } finally {
+    $('promptSaveBtn').disabled = false;
+  }
+}
+
+async function resetPrompt() {
+  if (!confirm('Reset to the built-in default prompt? Your edits will be lost.')) return;
+  const res = await apiFetch('/settings/prompt/reset', { method: 'POST' });
+  const data = await res.json();
+  $('promptText').value = data.system_prompt;
+  $('promptStatus').textContent = 'Reset to default.';
+  $('promptStatus').className = 'status-line ok';
+}
+
+$('promptSaveBtn').addEventListener('click', savePrompt);
+$('promptResetBtn').addEventListener('click', resetPrompt);
+
 $('scrapeBtn').addEventListener('click', scrape);
 $('query').addEventListener('keydown', (e) => { if (e.key === 'Enter') scrape(); });
 
@@ -942,6 +992,7 @@ function refreshAll() {
   refreshResultFiles();
   loadMailSettings();
   loadWhatsAppSettings();
+  loadPrompt();
   setupRemoteAccess();
 }
 

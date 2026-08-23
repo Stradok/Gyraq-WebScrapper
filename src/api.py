@@ -17,6 +17,7 @@ from .live_view import get_frame
 from .mail_settings import masked_mail_settings, save_mail_settings
 from .mailer import MailNotConfigured, send_email, test_imap, test_smtp
 from .pairing import consume_pairing_code, create_pairing_code
+from .prompt_settings import DEFAULT_SYSTEM_PROMPT, get_system_prompt, reset_system_prompt, save_system_prompt
 from .qr import make_qr_png
 from .results_store import list_result_files, read_result_file
 from .stats import get_stats
@@ -107,6 +108,10 @@ class WhatsAppSettingsRequest(BaseModel):
     waba_id: str | None = None
     verify_token: str | None = None
     app_secret: str | None = None
+
+
+class PromptRequest(BaseModel):
+    system_prompt: str = Field(..., min_length=1)
 
 
 def _summary(job: Job) -> dict:
@@ -253,6 +258,21 @@ def get_result(filename: str) -> dict:
 @app.get("/stats")
 def stats() -> dict:
     return get_stats()
+
+
+@app.get("/settings/prompt")
+def get_prompt_route() -> dict:
+    return {"system_prompt": get_system_prompt(), "default_prompt": DEFAULT_SYSTEM_PROMPT}
+
+
+@app.post("/settings/prompt")
+def update_prompt_route(req: PromptRequest) -> dict:
+    return {"system_prompt": save_system_prompt(req.system_prompt)}
+
+
+@app.post("/settings/prompt/reset")
+def reset_prompt_route() -> dict:
+    return {"system_prompt": reset_system_prompt()}
 
 
 @app.get("/settings/whatsapp")
