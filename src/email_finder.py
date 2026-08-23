@@ -4,6 +4,8 @@ from urllib.parse import urljoin
 
 from playwright.sync_api import BrowserContext
 
+from .mailbox_verify import mailbox_exists
+
 log = logging.getLogger(__name__)
 
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
@@ -127,7 +129,7 @@ def find_email(context: BrowserContext, website: str | None, timeout_ms: int = 1
             return None
 
         email = _extract_from_page(page)
-        if email:
+        if email and mailbox_exists(email) is not False:
             return email
 
         for path in CONTACT_PATHS:
@@ -136,7 +138,7 @@ def find_email(context: BrowserContext, website: str | None, timeout_ms: int = 1
             except Exception:
                 continue
             email = _extract_from_page(page)
-            if email:
+            if email and mailbox_exists(email) is not False:
                 return email
 
         return None
