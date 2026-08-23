@@ -79,7 +79,7 @@ def generate_pitch(biz: Business, reputation: dict | None = None) -> dict | None
         parsed = json.loads(data["message"]["content"])
         subject = parsed["subject"]
         company_name = get_company_profile().get("company_name") or "Gyraq"
-        body = parsed["body"] + FOOTER.format(
+        body = parsed["body"].rstrip() + FOOTER.format(
             company_name=company_name, address=config.COMPANY_ADDRESS
         )
         return {"pitch": parsed.get("pitch"), "subject": subject, "body": body}
