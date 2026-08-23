@@ -1,0 +1,9 @@
+{
+  "name": "gyraq-webscrapper",
+  "private": true,
+  "description": "Root convenience scripts for the Gyraq Lead Scraper desktop app shell (see electron/).",
+  "scripts": {
+    "app:setup": "npm install --prefix electron",
+    "app": "npm start --prefix electron"
+  }
+}

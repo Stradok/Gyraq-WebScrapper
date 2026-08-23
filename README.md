@@ -135,6 +135,39 @@ non-interactively. If Chromium fails to launch on a fresh Linux install,
 run `sudo uv run playwright install-deps chromium` once — Docker doesn't
 have this issue since the base image already includes those libraries.
 
+## Option C: Desktop app window (Electron)
+
+A thin wrapper around whichever of the two options above you use — instead
+of opening `localhost:8080` in a browser tab, you get a real app window
+(its own taskbar/dock entry, no address bar). It doesn't reimplement
+anything: on launch it checks if the backend is already up, and if not,
+starts it the same way you would by hand (`docker compose up -d --build`
+if Docker is available, otherwise the native `run.sh`/`run.ps1` path) and
+waits for it before opening the window.
+
+Requires [Node.js](https://nodejs.org) on the machine you're launching
+from (only for running it this way — it's not needed by Docker or the
+native `uv` path).
+
+```bash
+git clone https://github.com/Stradok/Gyraq-WebScrapper.git
+cd Gyraq-WebScrapper
+npm run app:setup   # one-time: installs Electron itself
+npm run app         # launches the window (starts the backend if needed)
+```
+
+First launch can take a minute if the backend also needs to build/start —
+you'll see a small "Starting…" window while that happens. Closing the app
+window does **not** stop the backend (it's meant to stay running as a
+service, same as the other two options) — closing is just closing the
+window, same as closing a browser tab, the container/process keeps going.
+
+This currently runs from source (`npm run app`) rather than as a
+double-click installer (`.exe`/`.dmg`/`.AppImage`) — packaging that with
+`electron-builder` is a reasonable next step if you want a one-click
+launcher without Node.js installed, but wasn't built yet since it needs
+testing on each target OS to get right.
+
 ## Web UI & monitoring from your phone
 
 Both setup paths serve a small web page at `http://localhost:8080` (or
@@ -418,6 +451,7 @@ from the web UI's Connections panel (see above), they're saved to `DB_FILE`.
 ```
 Dockerfile / docker-compose.yml   container + Chromium setup
 pyproject.toml / setup.sh / setup.ps1 / run.sh / run.ps1   native (no-Docker) setup, via uv
+electron/                         desktop app window shell (npm run app)
 data/queries.yaml                 the job queue (mounted volume)
 data/results/                     CSV/JSON output (mounted volume)
 data/app.db                       SQLite: job history, drafts, mail/WhatsApp settings

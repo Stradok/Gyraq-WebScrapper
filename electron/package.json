@@ -1,0 +1,13 @@
+{
+  "name": "gyraq-lead-scraper-app",
+  "version": "0.1.0",
+  "description": "Desktop app shell for Gyraq Lead Scraper - a native window over the local web UI, starting the backend (Docker or native) automatically if it isn't already running.",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "43.4.1"
+  }
+}

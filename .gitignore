@@ -10,3 +10,8 @@ data/seen_places.txt
 data/app.db
 data/app.db-wal
 data/app.db-shm
+
+# electron desktop shell
+electron/node_modules/
+electron/dist/
+node_modules/
