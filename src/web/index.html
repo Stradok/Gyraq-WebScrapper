@@ -275,6 +275,14 @@
   .thread-msg.out.failed { background: rgba(255,90,90,0.1); border-color: var(--err); }
   .thread-msg .ts { display: block; font-size: 10px; color: var(--muted); margin-top: 4px; }
   .draft-checkbox { margin-right: 8px; }
+  .select-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .select-all-label { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
   .item-actions { display: flex; gap: 6px; margin-top: 8px; }
   .item-actions button {
     background: var(--panel);
@@ -612,9 +620,17 @@
         <button data-value="failed">Failed</button>
       </span>
     </div>
+    <div class="select-bar">
+      <label class="select-all-label">
+        <input type="checkbox" id="selectAllShown">
+        <span>Select all shown</span>
+      </label>
+      <span class="meta" id="selectionCount">Nothing selected</span>
+    </div>
     <div class="draft-actions">
       <button id="sendSelectedBtn">Send selected</button>
-      <button class="btn-secondary" id="sendAllBtn">Send all pending</button>
+      <button class="btn-secondary" id="sendAllBtn">Send all shown pending</button>
+      <button class="btn-secondary" id="clearSelectionBtn">Clear selection</button>
     </div>
     <div class="status-line" id="sendStatus"></div>
     <div id="drafts" class="empty">Loading…</div>
@@ -884,22 +900,60 @@ $('clearJobsBtn').addEventListener('click', async () => {
 let lastDrafts = [];
 let draftChannelFilter = 'all';
 let draftStatusFilter = 'all';
+// Selection lives here rather than in the DOM so it survives re-renders,
+// filter changes, and refreshes - otherwise ticking 15 boxes and then
+// switching a filter would silently throw the selection away.
+let selectedDraftIds = new Set();
 
 async function refreshDrafts() {
   const res = await apiFetch('/drafts');
   lastDrafts = await res.json();
+  // Drop anything that's no longer pending (e.g. just sent) so a stale id
+  // can't sit in the selection and be re-sent.
+  const stillSelectable = new Set(
+    lastDrafts.filter(d => d.status === 'pending').map(d => d.id)
+  );
+  selectedDraftIds = new Set([...selectedDraftIds].filter(id => stillSelectable.has(id)));
   renderDrafts();
 }
 
-function renderDrafts() {
-  const drafts = lastDrafts.filter((d) =>
+function filteredDrafts() {
+  return lastDrafts.filter((d) =>
     (draftChannelFilter === 'all' || (d.channel || 'email') === draftChannelFilter) &&
     (draftStatusFilter === 'all' || d.status === draftStatusFilter)
   );
+}
+
+function shownPendingIds() {
+  return filteredDrafts().filter(d => d.status === 'pending').map(d => d.id);
+}
+
+function updateSelectionUi() {
+  const shown = shownPendingIds();
+  const selectedShown = shown.filter(id => selectedDraftIds.has(id));
+  const n = selectedDraftIds.size;
+
+  $('selectionCount').textContent = n
+    ? `${n} selected${selectedShown.length !== n ? ` (${selectedShown.length} in this view)` : ''}`
+    : 'Nothing selected';
+
+  const box = $('selectAllShown');
+  box.checked = shown.length > 0 && selectedShown.length === shown.length;
+  box.indeterminate = selectedShown.length > 0 && selectedShown.length < shown.length;
+  box.disabled = shown.length === 0;
+
+  $('sendSelectedBtn').textContent = n ? `Send selected (${n})` : 'Send selected';
+  $('sendAllBtn').textContent = `Send all shown pending (${shown.length})`;
+  $('sendAllBtn').disabled = shown.length === 0;
+}
+
+function renderDrafts() {
+  const drafts = filteredDrafts();
   const el = $('drafts');
   if (!drafts.length) {
     el.className = 'empty';
     el.textContent = lastDrafts.length ? 'No drafts match this filter.' : 'No drafts yet.';
+    updateSelectionUi();
     return;
   }
   el.className = '';
@@ -907,7 +961,7 @@ function renderDrafts() {
     <div class="item">
       <div class="item-top">
         <span class="item-title">
-          <input type="checkbox" class="draft-checkbox" data-id="${d.id}" ${d.status !== 'pending' ? 'disabled' : ''}>
+          <input type="checkbox" class="draft-checkbox" data-id="${d.id}" ${d.status !== 'pending' ? 'disabled' : ''} ${selectedDraftIds.has(d.id) ? 'checked' : ''}>
           ${escapeHtml(d.business_name || d.to)}
         </span>
         <span>
@@ -936,7 +990,29 @@ function renderDrafts() {
       </div>
     </div>
   `).join('');
+  updateSelectionUi();
 }
+
+$('drafts').addEventListener('change', (e) => {
+  const cb = e.target.closest('.draft-checkbox');
+  if (!cb) return;
+  const id = parseInt(cb.dataset.id, 10);
+  if (cb.checked) selectedDraftIds.add(id);
+  else selectedDraftIds.delete(id);
+  updateSelectionUi();
+});
+
+$('selectAllShown').addEventListener('change', () => {
+  const shown = shownPendingIds();
+  if ($('selectAllShown').checked) shown.forEach(id => selectedDraftIds.add(id));
+  else shown.forEach(id => selectedDraftIds.delete(id));
+  renderDrafts();
+});
+
+$('clearSelectionBtn').addEventListener('click', () => {
+  selectedDraftIds.clear();
+  renderDrafts();
+});
 
 function draftItemEl(id) {
   return document.querySelector(`#drafts button[data-id="${id}"]`).closest('.item');
@@ -1165,16 +1241,46 @@ async function sendDrafts(body) {
     $('sendStatus').className = 'status-line bad';
   } finally {
     $('sendSelectedBtn').disabled = false;
-    $('sendAllBtn').disabled = false;
+    // Not a blanket re-enable: updateSelectionUi owns whether "send all
+    // shown" is clickable (it's disabled when the filtered view has no
+    // pending drafts), so re-enabling it unconditionally here would
+    // undo that right after a successful send emptied the view.
+    updateSelectionUi();
   }
 }
 
+function describeScope(ids) {
+  const byChannel = {};
+  ids.forEach(id => {
+    const d = lastDrafts.find(x => x.id === id);
+    if (!d) return;
+    const ch = d.channel === 'whatsapp' ? 'WhatsApp' : 'email';
+    byChannel[ch] = (byChannel[ch] || 0) + 1;
+  });
+  return Object.entries(byChannel).map(([ch, n]) => `${n} ${ch}`).join(' + ');
+}
+
 $('sendSelectedBtn').addEventListener('click', () => {
-  const ids = Array.from(document.querySelectorAll('.draft-checkbox:checked')).map(cb => parseInt(cb.dataset.id, 10));
-  if (!ids.length) { $('sendStatus').textContent = 'Select at least one draft first.'; $('sendStatus').className = 'status-line bad'; return; }
+  const ids = [...selectedDraftIds];
+  if (!ids.length) {
+    $('sendStatus').textContent = 'Select at least one draft first.';
+    $('sendStatus').className = 'status-line bad';
+    return;
+  }
+  if (!confirm(`Send ${describeScope(ids)}? This delivers for real.`)) return;
   sendDrafts({ ids });
 });
-$('sendAllBtn').addEventListener('click', () => sendDrafts({ all: true }));
+
+// Deliberately sends the filtered view's pending drafts by explicit id,
+// not the API's blanket all:true - "send all" should mean what's actually
+// on screen, so filtering to Email + Pending sends only those and doesn't
+// also fire off every WhatsApp draft.
+$('sendAllBtn').addEventListener('click', () => {
+  const ids = shownPendingIds();
+  if (!ids.length) return;
+  if (!confirm(`Send ${describeScope(ids)}? This delivers for real.`)) return;
+  sendDrafts({ ids });
+});
 
 async function refreshStats() {
   const res = await apiFetch('/stats');
