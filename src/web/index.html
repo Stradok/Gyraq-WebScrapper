@@ -479,6 +479,7 @@
         <option value="sec-data">Scraped data</option>
       </select>
       <button id="installBtn" class="install-btn" hidden>Install app</button>
+      <button id="signOutBtn" class="install-btn" title="Forget this device — it'll need the PIN again">Sign out</button>
     </div>
   </div>
 </header>
@@ -782,6 +783,16 @@ async function submitPin() {
     $('pinSubmitBtn').disabled = false;
   }
 }
+
+// Signing in is remembered per-device (the token lives in this browser's
+// local storage), which is why a phone that's paired once doesn't get
+// asked again. This forgets it, so the PIN is required next time - the
+// way to un-pair a phone, or to test the PIN flow on your own.
+$('signOutBtn').addEventListener('click', () => {
+  if (!confirm('Sign out on this device? You\'ll need the PIN (or token) again.')) return;
+  setToken('');
+  showAuthGate('Signed out.');
+});
 
 $('pinSubmitBtn').addEventListener('click', submitPin);
 $('pinInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPin(); });
