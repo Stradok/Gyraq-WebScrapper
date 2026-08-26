@@ -440,9 +440,18 @@
 <div class="auth-gate" id="authGate" hidden>
   <div class="auth-card">
     <h2>Sign in</h2>
-    <p>This device needs the access token to talk to the app. Easiest: scan the QR code from the "Remote access" panel on a device that's already signed in. Otherwise, find it on the computer running Gyraq — the startup logs, or <code>data/.auth_token</code>.</p>
-    <input type="password" id="authInput" placeholder="Paste token" autocomplete="off">
-    <button id="authSubmitBtn">Continue</button>
+    <div id="pinBlock" hidden>
+      <p>Enter your PIN to use Gyraq on this device.</p>
+      <input type="password" id="pinInput" inputmode="numeric" placeholder="PIN" autocomplete="off">
+      <button id="pinSubmitBtn">Continue</button>
+      <p class="meta" style="margin:12px 0 0"><a href="#" id="showTokenLink">Use the access token instead</a></p>
+    </div>
+    <div id="tokenBlock">
+      <p>This device needs the access token to talk to the app. Easiest: scan the QR code from the "Remote access" panel on a device that's already signed in. Otherwise, find it on the computer running Gyraq — the startup logs, or <code>data/.auth_token</code>.</p>
+      <input type="password" id="authInput" placeholder="Paste token" autocomplete="off">
+      <button id="authSubmitBtn">Continue</button>
+      <p class="meta" style="margin:12px 0 0" hidden id="showPinWrap"><a href="#" id="showPinLink">Use a PIN instead</a></p>
+    </div>
     <p class="status-line bad" id="authError"></p>
   </div>
 </div>
@@ -593,8 +602,20 @@
 
   <section id="sec-remote">
     <h2>Remote access</h2>
-    <p class="meta" style="margin-bottom:10px">Scan this from your phone on the same WiFi to open the app already signed in.</p>
+    <p class="meta" style="margin-bottom:10px">Scan this from your phone on the same WiFi.</p>
     <div id="remoteAccessBody" class="empty">Loading…</div>
+
+    <p class="meta" style="margin:16px 0 6px">
+      Phone PIN — <span id="pinState">checking…</span>. Short code to type on your phone instead of the long
+      access token. Locks out for 5 minutes after 5 wrong tries. Anyone on this WiFi who knows it gets full
+      access, including your saved mail credentials — so don't make it guessable.
+    </p>
+    <div class="row">
+      <input type="password" id="newPinInput" inputmode="numeric" placeholder="New PIN (min 4 characters)" autocomplete="off" style="flex:1">
+      <button id="savePinBtn">Save PIN</button>
+      <button class="btn-secondary" id="removePinBtn">Remove</button>
+    </div>
+    <div class="status-line" id="pinStatus"></div>
   </section>
 
   <section id="sec-jobs">
@@ -717,9 +738,65 @@ function setToken(t) {
 
 function showAuthGate(message) {
   $('authGate').hidden = false;
-  $('authError').textContent = message || '';
-  $('authInput').focus();
+  // Only overwrite when there's something to say. A background request
+  // hitting 401 calls this with no message, and would otherwise wipe the
+  // "Wrong PIN" / "token didn't work" text the user needs to read.
+  if (message !== undefined) $('authError').textContent = message;
+  // Offer the PIN box only if the server actually has one set, so an
+  // install without a PIN never shows a box that can't work.
+  fetch('/pin-status')
+    .then(r => r.json())
+    .then(({ configured }) => {
+      $('pinBlock').hidden = !configured;
+      $('tokenBlock').hidden = configured;
+      $('showPinWrap').hidden = !configured;
+      ($(configured ? 'pinInput' : 'authInput')).focus();
+    })
+    .catch(() => $('authInput').focus());
 }
+
+async function submitPin() {
+  const pin = $('pinInput').value.trim();
+  if (!pin) return;
+  $('pinSubmitBtn').disabled = true;
+  $('authError').textContent = '';
+  try {
+    const res = await fetch('/pin-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      $('authError').textContent = body.detail || 'Wrong PIN.';
+      return;
+    }
+    const { token } = await res.json();
+    setToken(token);
+    $('pinInput').value = '';
+    hideAuthGate();
+    refreshAll();
+  } catch (e) {
+    $('authError').textContent = 'Could not reach the server.';
+  } finally {
+    $('pinSubmitBtn').disabled = false;
+  }
+}
+
+$('pinSubmitBtn').addEventListener('click', submitPin);
+$('pinInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPin(); });
+$('showTokenLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('pinBlock').hidden = true;
+  $('tokenBlock').hidden = false;
+  $('authInput').focus();
+});
+$('showPinLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('tokenBlock').hidden = true;
+  $('pinBlock').hidden = false;
+  $('pinInput').focus();
+});
 
 function hideAuthGate() {
   $('authGate').hidden = true;
@@ -1771,32 +1848,93 @@ async function setupRemoteAccess() {
     return;
   }
 
+  const pinRes = await apiFetch('/settings/pin');
+  const pinSet = (await pinRes.json()).configured;
+
   el.className = '';
   el.innerHTML = `
     <div class="qr-box"><img id="qrImg" alt="QR code"></div>
     <div class="token-row"><code id="pairUrlText">Generating…</code></div>
-    <p class="meta" style="margin-top:8px">
-      Expires in 10 minutes, works once.
-      <button class="btn-secondary" id="refreshPairBtn" style="font-size:11px;padding:5px 10px;margin-left:4px;">New code</button>
-    </p>
+    <p class="meta" style="margin-top:8px" id="pairHint"></p>
   `;
-  $('refreshPairBtn').addEventListener('click', loadPairingQr);
-  await loadPairingQr();
+  await loadPairingQr(pinSet);
 }
 
-async function loadPairingQr() {
+// With a PIN set the QR is just the plain LAN address: scanning opens the
+// sign-in screen and you type the PIN. That makes it a stable, re-usable
+// code (pin it up, bookmark it) instead of a one-shot link, which is the
+// whole point of having a short PIN in the first place.
+// Without a PIN we fall back to the original single-use pairing link, so
+// nothing breaks for an install that hasn't set one.
+async function loadPairingQr(pinSet) {
   if (!remoteLanUrl) return;
   try {
-    const codeRes = await apiFetch('/settings/pairing/new', { method: 'POST' });
-    const { code } = await codeRes.json();
-    const fullUrl = `${remoteLanUrl}/?pair=${encodeURIComponent(code)}`;
+    let fullUrl = remoteLanUrl + '/';
+    if (!pinSet) {
+      const codeRes = await apiFetch('/settings/pairing/new', { method: 'POST' });
+      const { code } = await codeRes.json();
+      fullUrl = `${remoteLanUrl}/?pair=${encodeURIComponent(code)}`;
+    }
     $('pairUrlText').textContent = fullUrl;
+    $('pairHint').innerHTML = pinSet
+      ? 'Scan it, then type your PIN. Same code works every time.'
+      : 'Expires in 10 minutes, works once. <button class="btn-secondary" id="refreshPairBtn" style="font-size:11px;padding:5px 10px;margin-left:4px;">New code</button>';
+    const refreshBtn = $('refreshPairBtn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadPairingQr(false));
 
     const qrRes = await apiFetch('/qr?url=' + encodeURIComponent(fullUrl));
     const blob = await qrRes.blob();
     $('qrImg').src = URL.createObjectURL(blob);
   } catch (e) { /* auth gate already shown by apiFetch if needed */ }
 }
+
+async function loadPinState() {
+  try {
+    const res = await apiFetch('/settings/pin');
+    const { configured } = await res.json();
+    $('pinState').textContent = configured ? 'set' : 'not set';
+    $('removePinBtn').disabled = !configured;
+  } catch (e) { /* auth gate already shown by apiFetch if needed */ }
+}
+
+$('savePinBtn').addEventListener('click', async () => {
+  const pin = $('newPinInput').value.trim();
+  if (pin.length < 4) {
+    $('pinStatus').textContent = 'Use at least 4 characters.';
+    $('pinStatus').className = 'status-line bad';
+    return;
+  }
+  $('savePinBtn').disabled = true;
+  try {
+    const res = await apiFetch('/settings/pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      $('pinStatus').textContent = b.detail || 'Could not save PIN.';
+      $('pinStatus').className = 'status-line bad';
+      return;
+    }
+    $('newPinInput').value = '';
+    $('pinStatus').textContent = 'PIN saved. The QR code now opens a PIN prompt.';
+    $('pinStatus').className = 'status-line ok';
+    await loadPinState();
+    await setupRemoteAccess();
+  } finally {
+    $('savePinBtn').disabled = false;
+  }
+});
+
+$('removePinBtn').addEventListener('click', async () => {
+  if (!confirm('Remove the PIN? Phones will need the full access token again.')) return;
+  await apiFetch('/settings/pin', { method: 'DELETE' });
+  $('pinStatus').textContent = 'PIN removed.';
+  $('pinStatus').className = 'status-line';
+  await loadPinState();
+  await setupRemoteAccess();
+});
 
 // Read-only, safe to silently re-render at any time - nothing here is
 // something you'd be mid-typing into.
@@ -1823,6 +1961,7 @@ function refreshAll() {
   loadBotSwitch();
   loadCompanyProfile();
   setupRemoteAccess();
+  loadPinState();
 }
 
 function initCollapsibleSections() {
@@ -1854,7 +1993,9 @@ initCollapsibleSections();
 
 // The live screenshot is a passive image, not a form - a fast poll here
 // doesn't disrupt anything, so it's the one thing kept on a timer.
-setInterval(refreshLive, 1500);
+// Skipped while signed out: it would just 401 twice a second, and each
+// one re-triggers the auth gate.
+setInterval(() => { if (getToken()) refreshLive(); }, 1500);
 
 // Everything else updates on page load, right after you take an action
 // (already wired into scrape/send/save), or by hitting Refresh - no

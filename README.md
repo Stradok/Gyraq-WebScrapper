@@ -276,10 +276,24 @@ page shell itself requires a token**, checked via an `X-App-Token` header.
 - A plain browser (including at `localhost:8080`) needs the token pasted in
   once; it's then remembered for that browser via local storage.
 - **Adding a second device (phone) doesn't hand out the master token
-  directly** — the QR code in the **Remote access** panel encodes a
-  short-lived, single-use pairing code (10 minute expiry) that's exchanged
-  for a real session on first scan. A screenshot of an old QR code, or
-  someone re-scanning one already used, does nothing.
+  directly.** Two ways, depending on whether a phone PIN is set:
+  - **No PIN (default):** the QR encodes a short-lived, single-use pairing
+    code (10 minute expiry) exchanged for a real session on first scan. A
+    screenshot of an old QR, or re-scanning a used one, does nothing.
+  - **PIN set:** the QR is just the app's LAN address, so it's permanent
+    and re-usable — scan it, type the PIN, you're in. Typing 4 digits beats
+    typing a 32-character token on a phone keyboard.
+- **The PIN is a real tradeoff, worth understanding.** It's short by
+  design, so anyone on your WiFi who knows (or guesses) it gets everything,
+  including the saved mail credentials. Mitigations: it's stored salted and
+  hashed (PBKDF2, never in the clear, so a leaked `app.db` doesn't reveal
+  it), and every wrong guess adds a growing delay — ~0.75s, then 1.5s, up
+  to 3s — which puts a full 4-digit sweep at over eight hours instead of
+  seconds. A deliberate delay rather than a hard lockout, because behind
+  Docker's NAT every client shares one source IP, so "lock out that IP"
+  would mean "lock out everyone" and hand anyone on the network an easy way
+  to keep the owner out. Set or remove it under **Remote access**; with no
+  PIN set, none of this is reachable and the token is the only way in.
 - **Anything that calls the API programmatically — n8n, curl, a script —
   needs to send the token too**, or every call gets a `401`. See below.
 
@@ -813,6 +827,7 @@ src/api.py                        HTTP API (FastAPI): all routes below + the aut
 src/auth.py                       generates/verifies the access token
 src/qr.py                         generates the QR PNG for the Remote Access panel
 src/pairing.py                    short-lived one-time codes for the QR phone-pairing flow
+src/pin_auth.py                   optional short phone PIN: salted hash + brute-force throttling
 src/web/index.html                the web UI (single static page, no build step)
 src/web/manifest.json, sw.js, icons/   makes the web UI installable as an app (PWA)
 src/db.py                         SQLite connection + schema (self-initializing)

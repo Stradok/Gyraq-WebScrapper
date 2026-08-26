@@ -22,6 +22,7 @@ from .mail_settings import masked_mail_settings, save_mail_settings
 from .mailer import MailNotConfigured, send_email, test_imap, test_smtp
 from .ollama_client import list_models
 from .pairing import consume_pairing_code, create_pairing_code
+from .pin_auth import clear_failures, clear_pin, has_pin, lockout_remaining, set_pin, verify_pin
 from .prompt_settings import (
     DEFAULT_SYSTEM_PROMPT,
     get_ollama_model,
@@ -630,6 +631,67 @@ def exchange_pairing_code(code: str) -> dict:
     if not consume_pairing_code(code):
         raise HTTPException(status_code=403, detail="invalid or expired pairing code")
     return {"token": get_or_create_token()}
+
+
+class PinRequest(BaseModel):
+    pin: str = Field(..., min_length=1)
+
+
+@app.get("/pin-status")
+def pin_status() -> dict:
+    """Public so the sign-in screen knows whether to offer the PIN box."""
+    return {"configured": has_pin()}
+
+
+@app.post("/pin-login")
+def pin_login(req: PinRequest, request: Request) -> dict:
+    """Public by necessity - the phone hasn't signed in yet. Unlike the
+    pairing code, a short PIN is small enough to brute force, so this is
+    rate limited per client IP (see pin_auth)."""
+    client_ip = request.client.host if request.client else "unknown"
+
+    remaining = lockout_remaining(client_ip)
+    if remaining:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many wrong attempts. Try again in {remaining // 60 + 1} min.",
+        )
+    if not has_pin():
+        raise HTTPException(status_code=403, detail="No PIN is set on this server.")
+    if not verify_pin(req.pin, client_ip):
+        log.warning("Failed PIN login attempt from %s", client_ip)
+        raise HTTPException(status_code=401, detail="Wrong PIN.")
+
+    log.info("Successful PIN login from %s", client_ip)
+    return {"token": get_or_create_token()}
+
+
+@app.post("/settings/pin/unlock")
+def unlock_pin_route(request: Request) -> dict:
+    """Clears the throttle from an already-signed-in device - lets the
+    owner recover immediately if someone (or a test) tripped it."""
+    clear_failures(request.client.host if request.client else "unknown")
+    return {"ok": True}
+
+
+@app.get("/settings/pin")
+def get_pin_route() -> dict:
+    return {"configured": has_pin()}
+
+
+@app.post("/settings/pin")
+def set_pin_route(req: PinRequest) -> dict:
+    pin = req.pin.strip()
+    if len(pin) < 4:
+        raise HTTPException(status_code=400, detail="Use at least 4 characters.")
+    set_pin(pin)
+    return {"configured": True}
+
+
+@app.delete("/settings/pin")
+def clear_pin_route() -> dict:
+    clear_pin()
+    return {"configured": False}
 
 
 # Mounted last so it never shadows the API routes above.
