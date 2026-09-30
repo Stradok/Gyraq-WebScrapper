@@ -120,6 +120,8 @@ jobs:
         run: |
           npm install
           npx cap add android
+          # Camera for scanning the server's pairing QR code.
+          sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
           # The server is usually plain http on a LAN address.
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
           VERSION="${GITHUB_REF_NAME#v}"

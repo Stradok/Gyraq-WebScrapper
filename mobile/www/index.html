@@ -10,6 +10,12 @@
   p { color: #8b909c; font-size: 14px; line-height: 1.45; }
   input { width: 100%; box-sizing: border-box; padding: 13px; margin: 14px 0 10px; background: #171a21; color: #e6e8ec; border: 1px solid #2a2e37; border-radius: 8px; font-size: 16px; }
   button { width: 100%; padding: 14px; background: #4f8cff; color: #fff; border: 0; border-radius: 8px; font-size: 16px; }
+  button.secondary { background: transparent; border: 1px solid #2a2e37; color: #e6e8ec; margin-top: 10px; }
+  #scanner { display: none; position: fixed; inset: 0; background: #000; z-index: 10; flex-direction: column; }
+  #scanner.on { display: flex; }
+  #scanner video { flex: 1; width: 100%; object-fit: cover; min-height: 0; }
+  #scanner .bar { padding: 16px 22px calc(16px + env(safe-area-inset-bottom)); background: #0f1115; text-align: center; }
+  #scanner .bar p { margin: 0 0 12px; }
   #msg { color: #ff6b6b; font-size: 13px; min-height: 18px; margin-top: 10px; }
 </style>
 </head>
@@ -18,7 +24,17 @@
   <p>Enter the address of your Gyraq server (the one running on your PC, Mac, or Docker box). You'll sign in with its PIN or access token.</p>
   <input id="url" type="url" inputmode="url" placeholder="http://192.168.1.20:8080" autocapitalize="off" autocomplete="off">
   <button id="go">Connect</button>
+  <button id="scan" class="secondary">Scan QR code</button>
   <div id="msg"></div>
+
+  <div id="scanner">
+    <video id="video" playsinline muted></video>
+    <div class="bar">
+      <p>Point the camera at the QR code in your Gyraq server's <strong>Remote access</strong> section.</p>
+      <button id="scanCancel" class="secondary" style="margin-top:0">Cancel</button>
+    </div>
+  </div>
+<script src="jsQR.js"></script>
 <script>
   const KEY = 'gyraq_server';
   const $ = (id) => document.getElementById(id);
@@ -51,6 +67,72 @@
         : "Couldn't reach that server. Check the address and that you're on the same network (or use its public address).";
     }
   }
+
+  // The server's QR encodes its address (plus a one-time ?pair= code that the
+  // page itself exchanges for a sign-in), so opening the scanned URL is enough.
+  function parseScanned(text) {
+    try {
+      const u = new URL(text.trim());
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      return { origin: u.origin, full: u.href };
+    } catch { return null; }
+  }
+
+  let stream = null, scanning = false;
+
+  function stopScan() {
+    scanning = false;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    $('video').srcObject = null;
+    $('scanner').classList.remove('on');
+  }
+
+  async function startScan() {
+    $('msg').textContent = '';
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    } catch {
+      $('msg').textContent = 'Camera unavailable. Allow camera access for this app, or type the address instead.';
+      return;
+    }
+    const video = $('video');
+    video.srcObject = stream;
+    await video.play();
+    $('scanner').classList.add('on');
+    scanning = true;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const tick = async () => {
+      if (!scanning) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+        const parsed = code && parseScanned(code.data);
+        if (parsed) {
+          stopScan();
+          $('url').value = parsed.origin;
+          $('msg').textContent = 'Connecting…';
+          if (await reachable(parsed.origin)) {
+            try { localStorage.setItem(KEY, parsed.origin); } catch {}
+            location.href = parsed.full;
+          } else {
+            $('msg').textContent = "Couldn't reach that server. Is this phone on the same Wi-Fi as it?";
+          }
+          return;
+        }
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  $('scan').addEventListener('click', startScan);
+  $('scanCancel').addEventListener('click', stopScan);
 
   $('go').addEventListener('click', () => {
     const base = normalize($('url').value);
