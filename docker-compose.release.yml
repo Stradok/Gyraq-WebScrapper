@@ -1,0 +1,43 @@
+# Server that updates itself: pulls the prebuilt image published by the
+# GitHub release workflow, and Watchtower re-pulls it whenever a new
+# version is published (checks hourly).
+#
+#   docker compose -f docker-compose.release.yml up -d
+#
+# Your data lives in ./data, so updates never touch it.
+services:
+  scraper:
+    image: ghcr.io/stradok/gyraq-webscrapper:latest
+    container_name: maps-scraper
+    restart: unless-stopped
+    shm_size: "2gb"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    environment:
+      QUERIES_FILE: /app/data/queries.yaml
+      RESULTS_DIR: /app/data/results
+      POLL_INTERVAL_SECONDS: "30"
+      DELAY_BETWEEN_QUERIES_MIN: "20"
+      DELAY_BETWEEN_QUERIES_MAX: "60"
+      REVIEWS_PER_BUSINESS: "5"
+      SCRAPE_EMAILS: "true"
+      GENERATE_PITCHES: "true"
+      RESEARCH_REPUTATION: "true"
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: gemma3:12b
+      HEADLESS: "true"
+      LOG_LEVEL: INFO
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: gyraq-watchtower
+    restart: unless-stopped
+    command: --label-enable --cleanup --interval 3600
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -4,3 +4,7 @@ __pycache__/
 .git/
 .venv/
 venv/
+site/
+mobile/
+.github/
+electron/

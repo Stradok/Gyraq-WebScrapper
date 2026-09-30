@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gyraq Lead Scraper</title>
+<style>
+  body { margin: 0; padding: 28px; background: #0f1115; color: #e6e8ec; font-family: -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { color: #8b909c; font-size: 13px; margin: 0 0 18px; }
+  .card { border: 1px solid #2a2e37; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; cursor: pointer; }
+  .card.sel { border-color: #4f8cff; background: rgba(79,140,255,0.08); }
+  .card strong { display: block; margin-bottom: 4px; }
+  .card span { font-size: 12px; color: #8b909c; }
+  #remoteFields { display: none; margin: 0 0 12px; }
+  input { width: 100%; box-sizing: border-box; padding: 9px 10px; margin-top: 8px; background: #171a21; color: #e6e8ec; border: 1px solid #2a2e37; border-radius: 6px; font-size: 13px; }
+  button { width: 100%; padding: 11px; background: #4f8cff; color: #fff; border: 0; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  #err { color: #ff6b6b; font-size: 12px; min-height: 16px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+  <h1>How do you want to use Gyraq?</h1>
+  <p>You can change this later with Ctrl/Cmd+Shift+M.</p>
+
+  <div class="card sel" data-mode="local">
+    <strong>Run it on this computer</strong>
+    <span>Scrapes from this machine and uses Ollama here for AI pitches and the WhatsApp bot. First launch downloads Python packages and Chromium.</span>
+  </div>
+  <div class="card" data-mode="remote">
+    <strong>Monitor a server</strong>
+    <span>Just a window onto a Gyraq that's already running elsewhere (a Docker box, another PC). Nothing runs here.</span>
+  </div>
+
+  <div id="remoteFields">
+    <input id="url" placeholder="Server address, e.g. http://192.168.1.20:8080">
+    <input id="token" placeholder="Access token (optional - you can also sign in on the page)" type="password">
+  </div>
+
+  <div id="err"></div>
+  <button id="go">Continue</button>
+
+<script>
+  let mode = 'local';
+  const cards = document.querySelectorAll('.card');
+  cards.forEach(c => c.addEventListener('click', () => {
+    mode = c.dataset.mode;
+    cards.forEach(x => x.classList.toggle('sel', x === c));
+    document.getElementById('remoteFields').style.display = mode === 'remote' ? 'block' : 'none';
+  }));
+  document.getElementById('go').addEventListener('click', async () => {
+    const res = await window.gyraq.chooseMode({
+      mode,
+      url: document.getElementById('url').value.trim(),
+      token: document.getElementById('token').value.trim(),
+    });
+    if (!res.ok) document.getElementById('err').textContent = res.error || 'Something went wrong.';
+  });
+</script>
+</body>
+</html>

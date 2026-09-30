@@ -479,6 +479,7 @@
         <option value="sec-data">Scraped data</option>
       </select>
       <button id="installBtn" class="install-btn" hidden>Install app</button>
+      <button id="changeServerBtn" class="install-btn" hidden>Change server</button>
       <button id="signOutBtn" class="install-btn" title="Forget this device — it'll need the PIN again">Sign out</button>
     </div>
   </div>
@@ -716,6 +717,12 @@
   <section id="sec-data">
     <h2>Scraped data</h2>
     <input type="text" id="resultFilesSearch" placeholder="Search past searches by query…" style="width:100%;margin-bottom:10px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <select id="exportType"><option value="phones">Phone numbers</option><option value="emails">Emails</option><option value="both">Phones + emails</option></select>
+      <select id="exportFormat"><option value="csv">CSV</option><option value="json">JSON</option></select>
+      <button id="exportBtn" type="button">Export cold-call list</button>
+      <span class="meta" id="exportHint">Exports every search, or only those you tick. Includes gaps, fixes and a call script.</span>
+    </div>
     <div id="resultFilesWrap" class="table-wrap"><div id="resultFiles" class="empty">Loading…</div></div>
     <div id="resultViewer" class="table-wrap" style="margin-top:10px"></div>
     <div id="businessDetail" style="margin-top:10px"></div>
@@ -793,6 +800,13 @@ $('signOutBtn').addEventListener('click', () => {
   setToken('');
   showAuthGate('Signed out.');
 });
+
+// Only inside the Android app (it appends "GyraqApp" to the user agent):
+// go back to its bundled connect screen to pick a different server.
+if (navigator.userAgent.includes('GyraqApp')) {
+  $('changeServerBtn').hidden = false;
+  $('changeServerBtn').addEventListener('click', () => { location.href = 'https://localhost/?change=1'; });
+}
 
 $('pinSubmitBtn').addEventListener('click', submitPin);
 $('pinInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPin(); });
@@ -1414,6 +1428,7 @@ function renderResultFiles() {
   el.innerHTML = `
     <table class="data-table">
       <thead><tr>
+        <th><input type="checkbox" id="exportAll" title="Select all shown"></th>
         <th class="sortable" data-col="query">Query${arrow('query')}</th>
         <th class="sortable" data-col="scraped_at">Date${arrow('scraped_at')}</th>
         <th class="sortable" data-col="count">Businesses${arrow('count')}</th>
@@ -1421,6 +1436,7 @@ function renderResultFiles() {
       <tbody>
         ${files.map(f => `
           <tr class="clickable-row" data-file="${escapeHtml(f.file)}">
+            <td><input type="checkbox" class="export-pick" ${exportPicked.has(f.file) ? 'checked' : ''}></td>
             <td>${escapeHtml(f.query || f.file)}</td>
             <td>${timeAgo(f.scraped_at)}</td>
             <td>${f.count != null ? f.count : ''}</td>
@@ -1431,8 +1447,51 @@ function renderResultFiles() {
   `;
   el.querySelectorAll('tr[data-file]').forEach(row => {
     row.addEventListener('click', () => viewResultFile(row.dataset.file));
+    const box = row.querySelector('.export-pick');
+    box.addEventListener('click', (e) => e.stopPropagation());
+    box.addEventListener('change', () => {
+      box.checked ? exportPicked.add(row.dataset.file) : exportPicked.delete(row.dataset.file);
+      updateExportHint();
+    });
+  });
+  const all = $('exportAll');
+  all.addEventListener('click', (e) => e.stopPropagation());
+  all.addEventListener('change', () => {
+    files.forEach(f => all.checked ? exportPicked.add(f.file) : exportPicked.delete(f.file));
+    renderResultFiles();
+    updateExportHint();
   });
 }
+
+const exportPicked = new Set();
+
+function updateExportHint() {
+  $('exportHint').textContent = exportPicked.size
+    ? `Exporting ${exportPicked.size} selected search(es).`
+    : 'Exports every search, or only those you tick. Includes gaps, fixes and a call script.';
+}
+
+$('exportBtn').addEventListener('click', async () => {
+  const btn = $('exportBtn');
+  btn.disabled = true;
+  try {
+    const params = new URLSearchParams({ type: $('exportType').value, format: $('exportFormat').value });
+    if (exportPicked.size) params.set('files', [...exportPicked].join(','));
+    const res = await apiFetch('/export?' + params);
+    if (!res.ok) throw new Error('export failed (' + res.status + ')');
+    const blob = await res.blob();
+    const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'leads.csv';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    if (e.message !== 'unauthorized') alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $('resultFiles').addEventListener('click', (e) => {
   const th = e.target.closest('th.sortable');

@@ -17,6 +17,7 @@ from .contacts import get_contact, link_contact, list_contacts, set_bot_enabled
 from .drafts_store import delete_draft, get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft, update_draft
 from .jobs import Job, job_store
+from .lead_export import FORMATS, KINDS, build_export
 from .live_view import get_frame
 from .mail_settings import masked_mail_settings, save_mail_settings
 from .mailer import MailNotConfigured, send_email, test_imap, test_smtp
@@ -369,6 +370,19 @@ def send_drafts(req: SendDraftsRequest) -> dict:
 @app.get("/results")
 def list_results() -> list[dict]:
     return list_result_files()
+
+
+@app.get("/export")
+def export_leads(request: Request) -> Response:
+    kind = request.query_params.get("type", "both")
+    fmt = request.query_params.get("format", "csv")
+    files = [f for f in request.query_params.get("files", "").split(",") if f]
+    if kind not in KINDS or fmt not in FORMATS:
+        raise HTTPException(status_code=400, detail="bad type or format")
+    if not files:  # no selection = every past search
+        files = [f["file"] for f in list_result_files()]
+    body, name, media = build_export(files, kind, fmt)
+    return Response(body, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.get("/results/{filename}")

@@ -1,13 +1,89 @@
 {
   "name": "gyraq-lead-scraper-app",
   "version": "0.1.0",
-  "description": "Desktop app shell for Gyraq Lead Scraper - a native window over the local web UI, starting the backend (Docker or native) automatically if it isn't already running.",
+  "description": "Desktop app for Gyraq Lead Scraper - runs the scraper on this computer (with local Ollama), or acts as a monitor window over a remote server.",
+  "author": "Gyraq",
   "private": true,
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
-    "electron": "43.4.1"
-  }
+    "electron": "43.4.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.gyraq.leadscraper",
+    "productName": "Gyraq Lead Scraper",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "chooser.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../src",
+        "to": "backend/src",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "../pyproject.toml",
+        "to": "backend/pyproject.toml"
+      },
+      {
+        "from": "../uv.lock",
+        "to": "backend/uv.lock"
+      },
+      {
+        "from": "../data/queries.yaml",
+        "to": "backend/queries.yaml"
+      },
+      {
+        "from": "resources/uv",
+        "to": "uv"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Stradok",
+        "repo": "Gyraq-WebScrapper",
+        "releaseType": "release"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Office",
+      "maintainer": "Gyraq <noreply@users.noreply.github.com>"
+    }
+  },
+  "homepage": "https://github.com/Stradok/Gyraq-WebScrapper"
 }

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gyraq Monitor</title>
+<style>
+  body { margin: 0; padding: 32px 22px; background: #0f1115; color: #e6e8ec; font-family: -apple-system, Roboto, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  p { color: #8b909c; font-size: 14px; line-height: 1.45; }
+  input { width: 100%; box-sizing: border-box; padding: 13px; margin: 14px 0 10px; background: #171a21; color: #e6e8ec; border: 1px solid #2a2e37; border-radius: 8px; font-size: 16px; }
+  button { width: 100%; padding: 14px; background: #4f8cff; color: #fff; border: 0; border-radius: 8px; font-size: 16px; }
+  #msg { color: #ff6b6b; font-size: 13px; min-height: 18px; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <h1>Gyraq Monitor</h1>
+  <p>Enter the address of your Gyraq server (the one running on your PC, Mac, or Docker box). You'll sign in with its PIN or access token.</p>
+  <input id="url" type="url" inputmode="url" placeholder="http://192.168.1.20:8080" autocapitalize="off" autocomplete="off">
+  <button id="go">Connect</button>
+  <div id="msg"></div>
+<script>
+  const KEY = 'gyraq_server';
+  const $ = (id) => document.getElementById(id);
+  const change = new URLSearchParams(location.search).has('change');
+
+  async function reachable(base) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 6000);
+    try {
+      const r = await fetch(base + '/health', { signal: ctl.signal });
+      return r.ok;
+    } catch { return false; } finally { clearTimeout(t); }
+  }
+
+  function normalize(raw) {
+    let v = raw.trim();
+    if (!v) return null;
+    if (!/^https?:\/\//i.test(v)) v = 'http://' + v;
+    try { return new URL(v).origin; } catch { return null; }
+  }
+
+  async function connect(base, silent) {
+    $('msg').textContent = silent ? '' : 'Connecting…';
+    if (await reachable(base)) {
+      try { localStorage.setItem(KEY, base); } catch {}
+      location.href = base + '/';
+    } else {
+      $('msg').textContent = silent
+        ? `Couldn't reach ${base}. Is the server running and on the same network?`
+        : "Couldn't reach that server. Check the address and that you're on the same network (or use its public address).";
+    }
+  }
+
+  $('go').addEventListener('click', () => {
+    const base = normalize($('url').value);
+    if (!base) { $('msg').textContent = 'Enter a valid address.'; return; }
+    connect(base, false);
+  });
+
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch {}
+  if (saved) $('url').value = saved;
+  if (saved && !change) connect(saved, true);
+</script>
+</body>
+</html>

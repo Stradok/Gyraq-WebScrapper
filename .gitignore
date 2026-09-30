@@ -16,3 +16,12 @@ data/.auth_token
 electron/node_modules/
 electron/dist/
 node_modules/
+
+# electron packaging
+electron/resources/uv/*
+!electron/resources/uv/.gitkeep
+electron/dist/
+
+# mobile
+mobile/node_modules/
+mobile/android/

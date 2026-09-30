@@ -168,6 +168,43 @@ double-click installer (`.exe`/`.dmg`/`.AppImage`) — packaging that with
 launcher without Node.js installed, but wasn't built yet since it needs
 testing on each target OS to get right.
 
+## Releases & auto-update
+
+Pushing a version tag (`git tag v0.2.0 && git push --tags`) runs
+`.github/workflows/release.yml`, which publishes:
+
+- **Docker image** to `ghcr.io/stradok/gyraq-webscrapper` (amd64 + arm64).
+  For a server that updates itself, use `docker compose -f docker-compose.release.yml up -d`
+  — Watchtower re-pulls the image hourly, and `./data` is untouched. (After the first
+  publish, set the package to *public* under GitHub → Packages, or `docker login ghcr.io`.)
+- **Desktop installers** on the GitHub Release: Windows `.exe`, macOS `.dmg` (universal),
+  Linux `.AppImage`. Installed apps check for new releases every few hours and update
+  themselves.
+
+On first launch the desktop app asks how to run:
+
+- **Run it on this computer** — the app carries the backend, sets up Python packages and
+  Chromium on first launch, and talks to Ollama on this machine (install it from
+  ollama.com, then `ollama pull gemma3:12b` and `ollama pull qwen3:8b`).
+- **Monitor a server** — just a window over a Gyraq running elsewhere; enter its address
+  (and optionally its access token).
+
+Linux gets a `.deb` (no auto-update) and an `.AppImage` (auto-updates). Android gets a
+monitor-only `.apk` (`mobile/`, a WebView over your server; no auto-update — reinstall the
+newest APK). Sign it with a persistent key so phones can update in place:
+`keytool -genkeypair -keystore release.keystore -alias gyraq -keyalg RSA -keysize 2048 -validity 10000`,
+then add secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 release.keystore`) and `ANDROID_KEYSTORE_PASSWORD`.
+
+**Download page:** `site/` is a static page (deploy on Vercel with *Root Directory* = `site`).
+It reads the latest GitHub Release and shows Download buttons per OS — the repo must be public.
+
+Ctrl/Cmd+Shift+M switches between the two. Phones use the web UI (installable as a PWA)
+against whichever server is running, so they update whenever the server does.
+
+Unsigned builds work but show OS warnings (macOS Gatekeeper, Windows SmartScreen), and macOS
+auto-update only works for signed apps. To sign, add repo secrets `MAC_CERT_P12_BASE64`,
+`MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+
 ## Web UI & monitoring from your phone
 
 Both setup paths serve a small web page at `http://localhost:8080` (or

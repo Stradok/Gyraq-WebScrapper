@@ -1,0 +1,13 @@
+{
+  "appId": "com.gyraq.monitor",
+  "appName": "Gyraq Monitor",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": ["*"]
+  },
+  "android": {
+    "appendUserAgent": "GyraqApp",
+    "allowMixedContent": true
+  }
+}
