@@ -1,5 +1,6 @@
 import logging
 import random
+import re
 import time
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -9,6 +10,37 @@ log = logging.getLogger(__name__)
 # automation on the first request (redirects to /sorry/index, verified live),
 # while DDG's index still surfaces the same LinkedIn/review/forum pages.
 SEARCH_URL = "https://html.duckduckgo.com/html/?q={q}"
+
+
+COMPLAINT_SITES = (
+    "trustpilot.com", "yelp.com", "bbb.org", "ripoffreport.com", "pissedconsumer.com",
+    "complaintsboard.com", "sitejabber.com", "consumeraffairs.com",
+)
+
+NEGATIVE_RE = re.compile(
+    r"scam|rip.?off|complain|worst|terrible|awful|horrible|avoid|never again|overcharg|unprofessional|"
+    r"poor service|bad service|disappoint|refund|no show|didn'?t show|ghosted|unresponsive|not recommend|"
+    r"fraud|lawsuit|warning|nightmare",
+    re.I,
+)
+
+
+def mentions_from(reputation: dict) -> list[dict]:
+    """Flatten the research into a list of {source, title, url, snippet, negative}."""
+    out = []
+    for key, label in (("reddit", "Reddit"), ("quora", "Quora"), ("complaints", "Complaint sites"), ("reviews", "Review sites")):
+        for r in reputation.get(key, []) or []:
+            text = f"{r.get('title', '')} {r.get('snippet', '')}"
+            out.append(
+                {
+                    "source": label,
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("snippet", ""),
+                    "negative": bool(NEGATIVE_RE.search(text)),
+                }
+            )
+    return out
 
 
 def _jitter(a: float, b: float) -> None:
@@ -88,6 +120,20 @@ def find_reputation_signals(
 
         _jitter(1.0, 2.0)
 
+        quora_raw = _search_snippets(page, f'"{business_name}" {loc} quora')
+        quora = [r for r in quora_raw if "quora.com" in r["url"]][:3]
+
+        _jitter(1.0, 2.0)
+
+        complaint_raw = _search_snippets(
+            page, f'"{business_name}" {loc} complaints trustpilot OR yelp OR bbb OR "ripoff report"'
+        )
+        complaints = [
+            r for r in complaint_raw if any(d in r["url"] for d in COMPLAINT_SITES)
+        ][:3]
+
+        _jitter(1.0, 2.0)
+
         linkedin_raw = _search_snippets(page, f'"{business_name}" {loc} linkedin')
         linkedin = [r for r in linkedin_raw if "linkedin.com" in r["url"]][:2]
 
@@ -98,7 +144,14 @@ def find_reputation_signals(
             r for r in social_raw if "instagram.com" in r["url"] or "facebook.com" in r["url"]
         ][:2]
 
-        return {"reddit": reddit, "reviews": reviews, "linkedin": linkedin, "social": social}
+        return {
+            "reddit": reddit,
+            "quora": quora,
+            "complaints": complaints,
+            "reviews": reviews,
+            "linkedin": linkedin,
+            "social": social,
+        }
     except Exception:
         log.warning("Reputation research failed for %r", business_name, exc_info=True)
         return {}

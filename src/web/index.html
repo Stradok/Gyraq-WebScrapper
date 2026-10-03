@@ -728,10 +728,11 @@
     <input type="text" id="resultFilesSearch" placeholder="Search past searches by query…" style="width:100%;margin-bottom:10px">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
       <select id="exportType"><option value="phones">Phone numbers</option><option value="emails">Emails</option><option value="both">Phones + emails</option></select>
-      <select id="exportFormat"><option value="csv">CSV</option><option value="json">JSON</option></select>
+      <select id="exportTier"><option value="low">Low-rated only (under 4.0★)</option><option value="low43">Low-rated only (under 4.3★)</option><option value="all">All businesses</option></select>
+      <select id="exportFormat"><option value="pdf">PDF</option><option value="xlsx">Excel</option><option value="csv">CSV</option><option value="json">JSON</option></select>
       <button id="exportBtn" type="button">Export cold-call list</button>
       <button id="queueWaBtn" type="button" class="btn-secondary" title="Creates a WhatsApp draft for every business with a phone number">Queue WhatsApp drafts</button>
-      <span class="meta" id="exportHint">Exports every search, or only those you tick. Includes gaps, fixes and a call script.</span>
+      <span class="meta" id="exportHint">Exports every search, or only those you tick. Includes weaknesses, fixes and a call script.</span>
     </div>
     <div id="resultFilesWrap" class="table-wrap"><div id="resultFiles" class="empty">Loading…</div></div>
     <div id="resultViewer" class="table-wrap" style="margin-top:10px"></div>
@@ -1509,7 +1510,7 @@ const exportPicked = new Set();
 function updateExportHint() {
   $('exportHint').textContent = exportPicked.size
     ? `Exporting ${exportPicked.size} selected search(es).`
-    : 'Exports every search, or only those you tick. Includes gaps, fixes and a call script.';
+    : 'Exports every search, or only those you tick. Includes weaknesses, fixes and a call script.';
 }
 
 $('queueWaBtn').addEventListener('click', async () => {
@@ -1534,7 +1535,11 @@ $('exportBtn').addEventListener('click', async () => {
   const btn = $('exportBtn');
   btn.disabled = true;
   try {
-    const params = new URLSearchParams({ type: $('exportType').value, format: $('exportFormat').value });
+    const tier = $('exportTier').value;
+    const params = new URLSearchParams({
+      type: $('exportType').value, format: $('exportFormat').value,
+      tier: tier === 'all' ? 'all' : 'low', max_rating: tier === 'low43' ? '4.3' : '4.0',
+    });
     if (exportPicked.size) params.set('files', [...exportPicked].join(','));
     const res = await apiFetch('/export?' + params);
     if (!res.ok) throw new Error('export failed (' + res.status + ')');

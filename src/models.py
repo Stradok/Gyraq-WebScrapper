@@ -7,6 +7,7 @@ class Review:
     rating: float | None = None
     relative_time: str | None = None
     text: str | None = None
+    age_days: int | None = None  # parsed from relative_time ("3 weeks ago" -> 21)
 
 
 @dataclass
@@ -26,6 +27,10 @@ class Business:
     google_maps_url: str | None = None
     place_id: str | None = None
     reviews: list[Review] = field(default_factory=list)
+    # Recent 1-3 star reviews (Google "Newest" and "Lowest rating" sorts).
+    negative_reviews: list[Review] = field(default_factory=list)
+    # Web mentions found by searching: {source, title, url, snippet, negative}.
+    mentions: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = asdict(self)

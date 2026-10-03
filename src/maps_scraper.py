@@ -13,7 +13,7 @@ from .email_finder import find_email
 from .live_view import set_frame
 from .models import Business, Review
 from .pitch_writer import generate_pitch, generate_whatsapp_pitch
-from .reputation_finder import find_reputation_signals
+from .reputation_finder import find_reputation_signals, mentions_from
 from .seen_store import SeenStore, extract_place_id
 from .whatsapp import normalize_whatsapp_number
 
@@ -307,12 +307,24 @@ class MapsScraper:
 
         biz.reviews = self._extract_reviews(config.REVIEWS_PER_BUSINESS)
 
+        # Only the businesses worth pitching (low or no rating) get the slower
+        # extra research: their freshest bad reviews and what Reddit, Quora
+        # and complaint sites say about them.
+        worth_researching = biz.rating is None or biz.rating < config.RESEARCH_MAX_RATING
+        if worth_researching and config.NEGATIVE_REVIEWS_PER_BUSINESS > 0:
+            try:
+                biz.negative_reviews = self._extract_negative_reviews(config.NEGATIVE_REVIEWS_PER_BUSINESS)
+            except Exception:
+                log.warning("Negative review collection failed for %r", biz.name, exc_info=True)
+
+        reputation = {}
+        if config.RESEARCH_REPUTATION and worth_researching:
+            reputation = find_reputation_signals(
+                self.context, biz.name, biz.address, config.REPUTATION_TIMEOUT_MS
+            )
+            biz.mentions = mentions_from(reputation)
+
         if config.GENERATE_PITCHES and (biz.email or biz.phone):
-            reputation = {}
-            if config.RESEARCH_REPUTATION:
-                reputation = find_reputation_signals(
-                    self.context, biz.name, biz.address, config.REPUTATION_TIMEOUT_MS
-                )
 
             if biz.email:
                 pitch = generate_pitch(biz, reputation)
@@ -364,7 +376,6 @@ class MapsScraper:
         if limit <= 0:
             return []
         page = self.page
-        reviews: list[Review] = []
         try:
             tab = page.get_by_role("tab", name=re.compile("Reviews", re.I)).first
             tab.wait_for(state="visible", timeout=6000)
@@ -373,8 +384,12 @@ class MapsScraper:
             page.wait_for_selector("div[data-review-id]", timeout=8000)
         except Exception:
             return []
+        return self._read_reviews(limit)
 
-        items = page.locator("div[data-review-id]")
+    def _read_reviews(self, limit: int, only_bad: bool = False) -> list[Review]:
+        """Parse the review cards currently loaded in the Reviews tab."""
+        reviews: list[Review] = []
+        items = self.page.locator("div[data-review-id]")
         seen_ids: set[str] = set()
         for i in range(items.count()):
             if len(reviews) >= limit:
@@ -396,14 +411,87 @@ class MapsScraper:
                     m = STARS_RE.search(stars_label)
                     if m:
                         rating = float(m.group(1))
+                if only_bad and (rating is None or rating > 3):
+                    continue
                 relative_time = _safe_text_in(item, "span.rsqaWe")
                 text = _safe_text_in(item, "span.wiI7pd")
                 reviews.append(
-                    Review(author=author, rating=rating, relative_time=relative_time, text=text)
+                    Review(
+                        author=author, rating=rating, relative_time=relative_time, text=text,
+                        age_days=_age_days(relative_time),
+                    )
                 )
             except Exception:
                 continue
         return reviews
+
+    def _sort_reviews(self, option: str) -> bool:
+        """Switch the reviews list to e.g. "Newest" / "Lowest rating"."""
+        page = self.page
+        try:
+            page.get_by_role("button", name=re.compile(r"sort", re.I)).first.click(timeout=3000)
+            _jitter(0.6, 1.2)
+            page.get_by_role("menuitemradio", name=re.compile(option, re.I)).first.click(timeout=3000)
+            _jitter(1.2, 2.2)
+            return True
+        except Exception:
+            return False
+
+    def _scroll_reviews(self, rounds: int = 4) -> None:
+        """Load more review cards by scrolling the reviews panel."""
+        for _ in range(rounds):
+            try:
+                self.page.evaluate(
+                    "() => { const el = document.querySelector('div.m6QErb.DxyBCb') || "
+                    "document.querySelector('div.m6QErb'); if (el) el.scrollTop = el.scrollHeight; }"
+                )
+            except Exception:
+                return
+            _jitter(0.8, 1.4)
+
+    def _extract_negative_reviews(self, limit: int) -> list[Review]:
+        """Freshest 1-3 star reviews. Google can't sort by both, so look at the
+        newest reviews and at the lowest-rated ones, keep the bad reviews from
+        each, and rank by recency."""
+        page = self.page
+        try:
+            tab = page.get_by_role("tab", name=re.compile("Reviews", re.I)).first
+            tab.wait_for(state="visible", timeout=6000)
+            tab.click(timeout=3000)
+            _jitter(1.0, 2.0)
+            page.wait_for_selector("div[data-review-id]", timeout=8000)
+        except Exception:
+            return []
+
+        found: list[Review] = []
+        seen: set[str] = set()
+        for option in ("Newest", "Lowest"):
+            if not self._sort_reviews(option):
+                continue
+            self._scroll_reviews()
+            for r in self._read_reviews(60, only_bad=True):
+                key = f"{r.author}|{(r.text or '')[:60]}"
+                if key in seen or not (r.text or "").strip():
+                    continue
+                seen.add(key)
+                found.append(r)
+        found.sort(key=lambda r: r.age_days if r.age_days is not None else 10**6)
+        return found[:limit]
+
+
+_AGE_RE = re.compile(r"(a|an|\d+)\s+(day|week|month|year)s?\s+ago", re.I)
+_AGE_UNIT = {"day": 1, "week": 7, "month": 30, "year": 365}
+
+
+def _age_days(relative_time: str | None) -> int | None:
+    """"3 weeks ago" -> 21; None if it can't be read."""
+    if not relative_time:
+        return None
+    m = _AGE_RE.search(relative_time)
+    if not m:
+        return 0 if re.search(r"just now|today|hour|minute", relative_time, re.I) else None
+    n = 1 if m.group(1).lower() in ("a", "an") else int(m.group(1))
+    return n * _AGE_UNIT[m.group(2).lower()]
 
 
 def _safe_text_in(locator, selector: str) -> str | None:

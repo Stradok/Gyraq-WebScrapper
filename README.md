@@ -658,6 +658,30 @@ a brand-new number still gets connected to their history if they mention
 their email. Clicking a contact shows the full interleaved conversation,
 with reply-generation time and send status on each bot message.
 
+## Low-rated leads, research and export
+
+Within each search, the highest-rated businesses are the benchmark and the
+low-rated ones are the targets. For businesses rated below
+`RESEARCH_MAX_RATING` (default 4.3) or unrated, the scraper also collects:
+
+- their **freshest 1-3★ Google reviews** (it reads the "Newest" and "Lowest
+  rating" sorts and keeps the recent bad ones, up to
+  `NEGATIVE_REVIEWS_PER_BUSINESS`, default 6), and
+- what **Reddit, Quora and complaint sites** (Trustpilot, Yelp, BBB, ...) say
+  about them (needs `RESEARCH_REPUTATION=true`).
+
+**Export** (Scraped data → *Export cold-call list*) offers PDF, Excel, CSV or
+JSON, for low-rated businesses only (under 4.0★ or 4.3★) or all of them. For
+each lead it lists the weaknesses compared with the top-rated businesses in the
+same search, the themes in the bad reviews (website/design, unanswered calls,
+no reply to enquiries, booking and no-shows, rude staff, pricing, workmanship),
+the services we can offer for each (website or redesign, AI voice agent,
+WhatsApp/chat assistant, online booking, reputation and reviews, Google Business
+Profile), a comparison with the best competitor, and a call script. Leads are
+sorted best prospect first. The PDF is a plain list of clients with clickable
+links; PDF export needs Chromium, which the Docker image and desktop app
+already have.
+
 ## Data viewer & stats
 
 The web UI's **Overview** row shows running totals (searches completed,

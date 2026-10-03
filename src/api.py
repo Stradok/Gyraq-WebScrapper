@@ -24,7 +24,7 @@ from .contacts import (
 from .drafts_store import delete_draft, get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft, update_draft
 from .jobs import Job, job_store
-from .lead_export import FORMATS, KINDS, build_export
+from .lead_export import DEFAULT_MAX_RATING, FORMATS, KINDS, TIERS, build_export
 from .live_view import get_frame
 from .mail_settings import masked_mail_settings, save_mail_settings
 from .mailer import MailNotConfigured, send_email, test_imap, test_smtp
@@ -394,11 +394,20 @@ def export_leads(request: Request) -> Response:
     kind = request.query_params.get("type", "both")
     fmt = request.query_params.get("format", "csv")
     files = [f for f in request.query_params.get("files", "").split(",") if f]
-    if kind not in KINDS or fmt not in FORMATS:
-        raise HTTPException(status_code=400, detail="bad type or format")
+    tier = request.query_params.get("tier", "all")
+    try:
+        max_rating = float(request.query_params.get("max_rating", DEFAULT_MAX_RATING))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bad max_rating")
+    if kind not in KINDS or fmt not in FORMATS or tier not in TIERS:
+        raise HTTPException(status_code=400, detail="bad type, format or tier")
     if not files:  # no selection = every past search
         files = [f["file"] for f in list_result_files()]
-    body, name, media = build_export(files, kind, fmt)
+    try:
+        body, name, media = build_export(files, kind, fmt, tier, max_rating)
+    except Exception as e:
+        log.warning("Export failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"export failed: {type(e).__name__}: {e}")
     return Response(body, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 

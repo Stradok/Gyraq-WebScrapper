@@ -17,6 +17,10 @@ DELAY_BETWEEN_QUERIES_MAX = int(os.environ.get("DELAY_BETWEEN_QUERIES_MAX", "60"
 
 DEFAULT_MAX_RESULTS = int(os.environ.get("DEFAULT_MAX_RESULTS", "60"))
 REVIEWS_PER_BUSINESS = int(os.environ.get("REVIEWS_PER_BUSINESS", "5"))
+# Bad (1-3 star) reviews kept per business, freshest first, and how recent
+# counts as "fresh" in the export.
+NEGATIVE_REVIEWS_PER_BUSINESS = int(os.environ.get("NEGATIVE_REVIEWS_PER_BUSINESS", "6"))
+FRESH_REVIEW_DAYS = int(os.environ.get("FRESH_REVIEW_DAYS", "365"))
 
 HEADLESS = _bool("HEADLESS", True)
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
@@ -45,4 +49,7 @@ WHATSAPP_OLLAMA_MODEL = os.environ.get("WHATSAPP_OLLAMA_MODEL", "qwen3:8b")
 OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT_S", "120"))
 
 RESEARCH_REPUTATION = _bool("RESEARCH_REPUTATION", False)
+# Web research (Reddit, Quora, complaint sites) is slow, so it only runs for
+# businesses rated below this (or unrated) - the ones worth pitching.
+RESEARCH_MAX_RATING = float(os.environ.get("RESEARCH_MAX_RATING", "4.3"))
 REPUTATION_TIMEOUT_MS = int(os.environ.get("REPUTATION_TIMEOUT_MS", "15000"))
