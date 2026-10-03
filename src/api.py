@@ -13,7 +13,14 @@ from . import config, job_control
 from .auth import get_or_create_token, verify_token
 from .company_profile import get_company_profile, save_company_profile
 from .bot_switch import is_bot_enabled, set_bot_enabled as set_global_bot_enabled
-from .contacts import get_contact, link_contact, list_contacts, set_bot_enabled
+from .contacts import (
+    get_contact,
+    link_contact,
+    list_contacts,
+    list_opted_in,
+    set_bot_enabled,
+    set_opted_in,
+)
 from .drafts_store import delete_draft, get_draft, list_drafts as _list_drafts
 from .drafts_store import mark_failed, mark_sent, save_draft, update_draft
 from .jobs import Job, job_store
@@ -52,6 +59,7 @@ from .whatsapp import (
     verify_webhook_signature,
 )
 from .whatsapp_bot import generate_reply
+from .whatsapp_outreach import OutreachBlocked, send_draft as send_whatsapp_draft
 from .whatsapp_settings import (
     get_whatsapp_settings,
     masked_whatsapp_settings,
@@ -138,6 +146,17 @@ class WhatsAppSettingsRequest(BaseModel):
     waba_id: str | None = None
     verify_token: str | None = None
     app_secret: str | None = None
+    numbers: list[dict] | None = None
+
+
+class OptInRequest(BaseModel):
+    phones: list[str] = Field(..., min_length=1)
+    opted_in: bool = True
+    note: str | None = None
+
+
+class WhatsAppDraftsRequest(BaseModel):
+    files: list[str] = Field(..., min_length=1)
 
 
 class PromptRequest(BaseModel):
@@ -348,18 +367,16 @@ def send_drafts(req: SendDraftsRequest) -> dict:
             continue
         try:
             if draft.get("channel") == "whatsapp":
-                # Only works if this contact has messaged us within the
-                # last 24h (a WhatsApp platform rule) - cold-starting a
-                # conversation needs a Meta-approved template, which isn't
-                # configured. That's a real, expected failure mode here,
-                # not a bug - Meta's own error message explains why.
-                send_whatsapp_text(draft["to"], draft["body"])
+                # Sent from the number matching the lead's country: as a
+                # normal reply inside the 24h window, otherwise as the
+                # approved template (opted-in contacts only, daily cap).
+                send_whatsapp_draft(draft)
             else:
                 send_email(draft["to"], draft["subject"], draft["body"])
             mark_sent(draft_id)
             sent += 1
         except Exception as e:
-            err = f"{type(e).__name__}: {e}"
+            err = str(e) if isinstance(e, OutreachBlocked) else f"{type(e).__name__}: {e}"
             mark_failed(draft_id, err)
             failed += 1
             errors.append({"id": draft_id, "to": draft["to"], "error": err})
@@ -511,12 +528,60 @@ def update_whatsapp_settings(req: WhatsAppSettingsRequest) -> dict:
 @app.post("/settings/whatsapp/test")
 def test_whatsapp_route() -> dict:
     try:
-        info = test_whatsapp_connection()
-        return {"ok": True, "info": info}
+        numbers = test_whatsapp_connection()
+        return {"ok": all(n["ok"] for n in numbers), "numbers": numbers}
     except WhatsAppNotConfigured as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@app.get("/whatsapp/optins")
+def whatsapp_optins() -> list[str]:
+    return list_opted_in()
+
+
+@app.post("/whatsapp/optins")
+def whatsapp_set_optins(req: OptInRequest) -> dict:
+    """Mark people as having agreed (or not) to be messaged on WhatsApp.
+    The caller attests to the consent; the note records how it was given."""
+    from .whatsapp import normalize_whatsapp_number
+
+    note = (req.note or "").strip() or "Confirmed in Gyraq"
+    done = 0
+    for phone in req.phones:
+        digits = normalize_whatsapp_number(phone)
+        if digits:
+            set_opted_in(digits, req.opted_in, note)
+            done += 1
+    return {"updated": done}
+
+
+@app.post("/drafts/whatsapp-from-results")
+def whatsapp_drafts_from_results(req: WhatsAppDraftsRequest) -> dict:
+    """Queue a WhatsApp draft for every business with a phone number in the
+    chosen searches (skipping numbers that already have one). The text is
+    only used inside the 24h reply window; a cold first message goes out as
+    the approved template instead."""
+    from .whatsapp import normalize_whatsapp_number
+
+    company = get_company_profile().get("company_name") or "our team"
+    existing = {
+        normalize_whatsapp_number(d["to"]) for d in _list_drafts() if d.get("channel") == "whatsapp"
+    }
+    created = 0
+    for file in req.files:
+        data = read_result_file(file)
+        for biz in (data or {}).get("results", []):
+            number = normalize_whatsapp_number(biz.get("phone"))
+            if not number or number in existing:
+                continue
+            name = biz.get("name") or "there"
+            body = f"Hi {name}, this is {company}. Thanks for getting back to us - how can we help?"
+            save_draft(number, "", body, biz.get("name"), "whatsapp-intro", channel="whatsapp")
+            existing.add(number)
+            created += 1
+    return {"created": created}
 
 
 @app.get("/whatsapp/inbox")
@@ -582,12 +647,12 @@ async def receive_whatsapp_webhook(request: Request) -> dict:
 
     payload = json.loads(raw)
     for msg in parse_webhook_payload(payload):
-        record_incoming(msg["from"], msg["text"], payload)
-        _auto_reply(msg["from"], msg["text"])
+        record_incoming(msg["from"], msg["text"], payload, msg.get("phone_number_id"))
+        _auto_reply(msg["from"], msg["text"], msg.get("phone_number_id"))
     return {"status": "received"}
 
 
-def _auto_reply(from_number: str, text: str) -> None:
+def _auto_reply(from_number: str, text: str, phone_number_id: str | None = None) -> None:
     """Replying to an inbound DM is a normal, fully-supported use of the
     WhatsApp API (unlike cold-starting a conversation, see whatsapp.
     send_text) - no template required. Never lets a reply/send failure
@@ -613,11 +678,15 @@ def _auto_reply(from_number: str, text: str) -> None:
     if not reply:
         return
     try:
-        send_whatsapp_text(from_number, reply)
-        record_outgoing(from_number, reply, "sent", duration_ms=elapsed_ms)
+        # Answer from the same number the person wrote to.
+        send_whatsapp_text(from_number, reply, phone_number_id)
+        record_outgoing(
+            from_number, reply, "sent", duration_ms=elapsed_ms, phone_number_id=phone_number_id
+        )
     except Exception as e:
         record_outgoing(
-            from_number, reply, "failed", f"{type(e).__name__}: {e}", duration_ms=elapsed_ms
+            from_number, reply, "failed", f"{type(e).__name__}: {e}",
+            duration_ms=elapsed_ms, phone_number_id=phone_number_id,
         )
         log.warning("Failed to send WhatsApp auto-reply to %r", from_number, exc_info=True)
 

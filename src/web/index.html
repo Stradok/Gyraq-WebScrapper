@@ -555,11 +555,19 @@
       </p>
       <div class="field-grid">
         <div class="field-full"><label>Access token</label><input type="password" id="wToken" placeholder="unchanged if left blank"></div>
-        <div><label>Phone number ID</label><input type="text" id="wPhoneId"></div>
         <div><label>WhatsApp Business Account ID</label><input type="text" id="wWabaId"></div>
         <div class="field-full"><label>Webhook verify token (you choose this)</label><input type="text" id="wVerifyToken"></div>
         <div class="field-full"><label>App secret <span style="font-weight:400;color:var(--muted)">(recommended — verifies incoming webhooks are really from Meta)</span></label><input type="password" id="wAppSecret" placeholder="unchanged if left blank"></div>
       </div>
+      <h3 style="margin:18px 0 4px;font-size:14px">Your WhatsApp numbers</h3>
+      <p class="meta" style="margin-bottom:10px">
+        Add each number's <strong>Phone number ID</strong> (WhatsApp → API Setup). Leads with a +92 number are
+        messaged from the Pakistan number, everyone else from the international one. A first message must be an
+        approved <strong>template</strong> (create it in Meta's WhatsApp Manager, then enter its exact name here)
+        and only goes to people marked as opted in. Replies to people who write first are sent from the number they wrote to.
+      </p>
+      <div id="wNumbers"></div>
+      <button class="btn-secondary" id="wAddNumberBtn" type="button" style="margin-top:8px">Add number</button>
       <div class="btn-row">
         <button id="wSaveBtn">Save</button>
         <button class="btn-secondary" id="wTestBtn">Test connection</button>
@@ -654,6 +662,7 @@
       <button id="sendSelectedBtn">Send selected</button>
       <button class="btn-secondary" id="sendAllBtn">Send all shown pending</button>
       <button class="btn-secondary" id="clearSelectionBtn">Clear selection</button>
+      <button class="btn-secondary" id="optInSelectedBtn" title="Only for people who agreed to be messaged on WhatsApp">Mark selected WhatsApp as opted in</button>
     </div>
     <div class="status-line" id="sendStatus"></div>
     <div id="drafts" class="empty">Loading…</div>
@@ -721,6 +730,7 @@
       <select id="exportType"><option value="phones">Phone numbers</option><option value="emails">Emails</option><option value="both">Phones + emails</option></select>
       <select id="exportFormat"><option value="csv">CSV</option><option value="json">JSON</option></select>
       <button id="exportBtn" type="button">Export cold-call list</button>
+      <button id="queueWaBtn" type="button" class="btn-secondary" title="Creates a WhatsApp draft for every business with a phone number">Queue WhatsApp drafts</button>
       <span class="meta" id="exportHint">Exports every search, or only those you tick. Includes gaps, fixes and a call script.</span>
     </div>
     <div id="resultFilesWrap" class="table-wrap"><div id="resultFiles" class="empty">Loading…</div></div>
@@ -1000,6 +1010,8 @@ $('clearJobsBtn').addEventListener('click', async () => {
 });
 
 let lastDrafts = [];
+let optedIn = new Set();
+const digitsOf = (v) => String(v || '').replace(/\D/g, '');
 let draftChannelFilter = 'all';
 let draftStatusFilter = 'all';
 // Selection lives here rather than in the DOM so it survives re-renders,
@@ -1010,6 +1022,7 @@ let selectedDraftIds = new Set();
 async function refreshDrafts() {
   const res = await apiFetch('/drafts');
   lastDrafts = await res.json();
+  try { optedIn = new Set(await (await apiFetch('/whatsapp/optins')).json()); } catch (e) { /* keep previous */ }
   // Drop anything that's no longer pending (e.g. just sent) so a stale id
   // can't sit in the selection and be re-sent.
   const stillSelectable = new Set(
@@ -1068,6 +1081,7 @@ function renderDrafts() {
         </span>
         <span>
           <span class="badge">${d.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}</span>
+          ${d.channel === 'whatsapp' ? `<span class="badge ${optedIn.has(digitsOf(d.to)) ? 'sent' : 'failed'}">${optedIn.has(digitsOf(d.to)) ? 'Opted in' : 'Not opted in'}</span>` : ''}
           <span class="badge">${escapeHtml(d.pitch || '')}</span>
           <span class="badge ${d.status}">${d.status}</span>
         </span>
@@ -1087,6 +1101,7 @@ function renderDrafts() {
         </div>
       </div>
       <div class="item-actions">
+        ${d.channel === 'whatsapp' ? `<button class="btn-secondary" data-action="toggle-optin" data-id="${d.id}">${optedIn.has(digitsOf(d.to)) ? 'Remove opt-in' : 'Mark opted in'}</button>` : ''}
         ${d.status !== 'sent' ? `<button data-action="edit-draft" data-id="${d.id}">Edit</button>` : ''}
         <button data-action="delete-draft" data-id="${d.id}" class="danger">Delete</button>
       </div>
@@ -1111,6 +1126,20 @@ $('selectAllShown').addEventListener('change', () => {
   renderDrafts();
 });
 
+$('optInSelectedBtn').addEventListener('click', async () => {
+  const picked = lastDrafts.filter(d => selectedDraftIds.has(d.id) && d.channel === 'whatsapp');
+  if (!picked.length) { $('sendStatus').textContent = 'Select some WhatsApp drafts first.'; $('sendStatus').className = 'status-line bad'; return; }
+  if (!confirm(`You confirm these ${picked.length} people agreed to be messaged on WhatsApp (for example on a call or by email)? Messaging people who did not gets your number limited or banned.`)) return;
+  const res = await apiFetch('/whatsapp/optins', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phones: picked.map(d => d.to), opted_in: true, note: 'Confirmed in Gyraq' }),
+  });
+  const data = await res.json();
+  $('sendStatus').textContent = `Marked ${data.updated} as opted in.`;
+  $('sendStatus').className = 'status-line ok';
+  await refreshDrafts();
+});
+
 $('clearSelectionBtn').addEventListener('click', () => {
   selectedDraftIds.clear();
   renderDrafts();
@@ -1124,6 +1153,18 @@ $('drafts').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const { action, id } = btn.dataset;
+
+  if (action === 'toggle-optin') {
+    const d = lastDrafts.find(x => x.id === parseInt(id, 10));
+    const want = !optedIn.has(digitsOf(d.to));
+    if (want && !confirm(`Confirm that ${d.business_name || d.to} agreed to be messaged on WhatsApp (for example on a call or by email)?`)) return;
+    await apiFetch('/whatsapp/optins', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phones: [d.to], opted_in: want, note: 'Confirmed in Gyraq' }),
+    });
+    await refreshDrafts();
+    return;
+  }
 
   if (action === 'edit-draft') {
     const item = draftItemEl(id);
@@ -1471,6 +1512,24 @@ function updateExportHint() {
     : 'Exports every search, or only those you tick. Includes gaps, fixes and a call script.';
 }
 
+$('queueWaBtn').addEventListener('click', async () => {
+  const files = exportPicked.size ? [...exportPicked] : lastResultFiles.map(f => f.file);
+  if (!files.length) return;
+  $('queueWaBtn').disabled = true;
+  try {
+    const res = await apiFetch('/drafts/whatsapp-from-results', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files }),
+    });
+    const data = await res.json();
+    $('exportHint').textContent = `Queued ${data.created} WhatsApp draft(s). Open Drafted messages to mark opted-in contacts and send.`;
+    refreshDrafts();
+  } catch (e) {
+    if (e.message !== 'unauthorized') alert(e.message);
+  } finally {
+    $('queueWaBtn').disabled = false;
+  }
+});
+
 $('exportBtn').addEventListener('click', async () => {
   const btn = $('exportBtn');
   btn.disabled = true;
@@ -1653,10 +1712,69 @@ $('mSaveBtn').addEventListener('click', saveMailSettings);
 $('mTestSmtpBtn').addEventListener('click', () => testMail('smtp'));
 $('mTestImapBtn').addEventListener('click', () => testMail('imap'));
 
+let waNumbers = [];
+const WA_FIELDS = [['business_name', "Business name"], ['company_name', 'Your company name']];
+
+function blankWaNumber(region) {
+  return {
+    label: region === 'pk' ? 'Pakistan' : 'UK / International', region, phone_number_id: '',
+    daily_cap: 50, template_name: '', template_language: region === 'pk' ? 'en' : 'en_GB', template_params: ['business_name'],
+  };
+}
+
+function renderWaNumbers() {
+  $('wNumbers').innerHTML = waNumbers.map((n, i) => `
+    <div class="item wa-number" data-i="${i}" style="margin-bottom:10px">
+      <div class="field-grid">
+        <div><label>Label</label><input type="text" data-f="label" value="${escapeHtml(n.label)}"></div>
+        <div><label>Sends to</label>
+          <select data-f="region" style="width:100%">
+            <option value="pk" ${n.region === 'pk' ? 'selected' : ''}>Pakistan leads (+92)</option>
+            <option value="intl" ${n.region !== 'pk' ? 'selected' : ''}>All other countries</option>
+          </select></div>
+        <div><label>Phone number ID</label><input type="text" data-f="phone_number_id" value="${escapeHtml(n.phone_number_id)}"></div>
+        <div><label>Daily template limit</label><input type="number" min="1" max="1000" data-f="daily_cap" value="${n.daily_cap}"></div>
+        <div><label>Approved template name</label><input type="text" data-f="template_name" placeholder="e.g. intro_offer" value="${escapeHtml(n.template_name)}"></div>
+        <div><label>Template language code</label><input type="text" data-f="template_language" placeholder="en, en_GB, ur" value="${escapeHtml(n.template_language)}"></div>
+        <div class="field-full"><label>Template variables, in order ({{1}}, {{2}}…)</label>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px">
+            ${WA_FIELDS.map(([k, name]) => `<label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" data-p="${k}" ${n.template_params.includes(k) ? 'checked' : ''}> ${name}</label>`).join('')}
+          </div></div>
+      </div>
+      <div class="item-actions"><button type="button" class="danger" data-remove-number="${i}">Remove</button></div>
+    </div>`).join('');
+}
+
+function collectWaNumbers() {
+  return [...document.querySelectorAll('#wNumbers .wa-number')].map(el => {
+    const get = (f) => el.querySelector(`[data-f="${f}"]`).value;
+    return {
+      label: get('label'), region: get('region'), phone_number_id: get('phone_number_id').trim(),
+      daily_cap: parseInt(get('daily_cap'), 10) || 50, template_name: get('template_name').trim(),
+      template_language: get('template_language').trim() || 'en',
+      template_params: [...el.querySelectorAll('[data-p]:checked')].map(c => c.dataset.p),
+    };
+  });
+}
+
+$('wAddNumberBtn').addEventListener('click', () => {
+  waNumbers = collectWaNumbers();
+  waNumbers.push(blankWaNumber(waNumbers.some(n => n.region === 'pk') ? 'intl' : 'pk'));
+  renderWaNumbers();
+});
+$('wNumbers').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-remove-number]');
+  if (!b) return;
+  waNumbers = collectWaNumbers();
+  waNumbers.splice(parseInt(b.dataset.removeNumber, 10), 1);
+  renderWaNumbers();
+});
+
 async function loadWhatsAppSettings() {
   const res = await apiFetch('/settings/whatsapp');
   const s = await res.json();
-  $('wPhoneId').value = s.phone_number_id || '';
+  waNumbers = (s.numbers && s.numbers.length) ? s.numbers : [blankWaNumber('pk'), blankWaNumber('intl')];
+  renderWaNumbers();
   $('wWabaId').value = s.waba_id || '';
   $('wVerifyToken').value = s.verify_token || '';
   $('wToken').placeholder = s.access_token ? '•••••••• (unchanged if left blank)' : 'access token';
@@ -1666,7 +1784,8 @@ async function loadWhatsAppSettings() {
 
 async function saveWhatsAppSettings() {
   const body = {
-    phone_number_id: $('wPhoneId').value,
+    numbers: collectWaNumbers().filter(n => n.phone_number_id),
+    phone_number_id: '',
     waba_id: $('wWabaId').value,
     verify_token: $('wVerifyToken').value,
   };
@@ -1689,7 +1808,10 @@ async function testWhatsApp() {
   try {
     const res = await apiFetch('/settings/whatsapp/test', { method: 'POST' });
     const data = await res.json();
-    $('wStatus').textContent = data.ok ? 'Connected.' : 'Failed: ' + data.error;
+    const lines = (data.numbers || []).map(n => n.ok
+      ? `${n.label}: ${n.info.verified_name || ''} ${n.info.display_phone_number || ''}${n.info.quality_rating ? ' (quality ' + n.info.quality_rating + ')' : ''} ✓`
+      : `${n.label}: failed - ${n.error}`);
+    $('wStatus').textContent = data.numbers ? lines.join('  ·  ') : (data.ok ? 'Connected.' : 'Failed: ' + data.error);
     $('wStatus').className = 'status-line ' + (data.ok ? 'ok' : 'bad');
   } finally {
     $('wTestBtn').disabled = false;

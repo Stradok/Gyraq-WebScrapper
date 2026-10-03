@@ -105,6 +105,16 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         outbox_cols = {row["name"] for row in conn.execute("PRAGMA table_info(whatsapp_outbox)")}
         if "duration_ms" not in outbox_cols:
             conn.execute("ALTER TABLE whatsapp_outbox ADD COLUMN duration_ms INTEGER")
+        # Which of our WhatsApp numbers sent it, and whether it was a free-form
+        # reply ("text") or an approved template ("template") - the daily cap
+        # counts template sends per number.
+        if "phone_number_id" not in outbox_cols:
+            conn.execute("ALTER TABLE whatsapp_outbox ADD COLUMN phone_number_id TEXT")
+        if "kind" not in outbox_cols:
+            conn.execute("ALTER TABLE whatsapp_outbox ADD COLUMN kind TEXT DEFAULT 'text'")
+        inbox_cols = {row["name"] for row in conn.execute("PRAGMA table_info(whatsapp_inbox)")}
+        if "phone_number_id" not in inbox_cols:
+            conn.execute("ALTER TABLE whatsapp_inbox ADD COLUMN phone_number_id TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS contacts (
@@ -122,6 +132,12 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         contact_cols = {row["name"] for row in conn.execute("PRAGMA table_info(contacts)")}
         if "bot_enabled" not in contact_cols:
             conn.execute("ALTER TABLE contacts ADD COLUMN bot_enabled INTEGER DEFAULT 1")
+        if "opted_in" not in contact_cols:
+            conn.execute("ALTER TABLE contacts ADD COLUMN opted_in INTEGER DEFAULT 0")
+        if "opted_in_at" not in contact_cols:
+            conn.execute("ALTER TABLE contacts ADD COLUMN opted_in_at TEXT")
+        if "opt_in_note" not in contact_cols:
+            conn.execute("ALTER TABLE contacts ADD COLUMN opt_in_note TEXT")
         # Any job still marked "running" or "paused" from a previous process
         # (e.g. the container was restarted mid-scrape, or while paused) is
         # orphaned - its in-memory pause/cancel controls are gone with the

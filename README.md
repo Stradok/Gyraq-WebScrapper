@@ -585,12 +585,34 @@ Meta's side:
    "incoming messages"; with it, every webhook call is verified against
    Meta's signature and forged ones are rejected.
 
-One WhatsApp platform rule, not a limitation of this code: you can only
-send free-form text as a **reply** within 24 hours of the customer's last
-message. Starting a fresh conversation (cold outreach) requires a
-Meta-approved message *template* — template creation/approval isn't built
-yet, since it only matters once you're past the receiving/replying setup
-above.
+### Several numbers (e.g. Pakistan + UK) and first messages
+
+Under **Connections → WhatsApp → Your WhatsApp numbers**, add each number's
+**Phone number ID** (they can share one access token). For each number set:
+
+- **Sends to** — Pakistan leads (+92) go out from the Pakistan number,
+  everyone else from the international one.
+- **Approved template name / language / variables** — the template you
+  created and got approved in Meta's WhatsApp Manager. Variables are filled
+  in order from the lead's business name and your company name.
+- **Daily template limit** — a per-number safety cap.
+
+WhatsApp only allows free-form text within 24 hours of the person's last
+message. A first message to someone who hasn't written to you must be an
+approved template. So when you press **Send** on a WhatsApp draft:
+
+1. If the person messaged you in the last 24h, the draft text is sent as a
+   normal reply, from the number they wrote to.
+2. Otherwise the approved template is sent from the number matching their
+   country - but **only if they're marked opted in** and the daily limit
+   isn't reached. Otherwise the draft fails with the reason.
+
+Meta's policy requires people to have agreed to be messaged. Mark people as
+opted in (button on each draft, or **Mark selected WhatsApp as opted in**)
+only when they actually agreed, e.g. on a call or by email. In **Scraped
+data**, **Queue WhatsApp drafts** creates a draft for every business with a
+phone number in the selected searches. Replies from leads are answered by the
+chatbot from the same number they wrote to.
 
 ### The inbound chatbot
 

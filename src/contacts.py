@@ -27,7 +27,36 @@ def _row_to_dict(row) -> dict:
         "updated_at": row["updated_at"],
         # Default on for contacts created before this column existed.
         "bot_enabled": bool(row["bot_enabled"]) if row["bot_enabled"] is not None else True,
+        "opted_in": bool(row["opted_in"]) if row["opted_in"] is not None else False,
+        "opted_in_at": row["opted_in_at"],
+        "opt_in_note": row["opt_in_note"],
     }
+
+
+def set_opted_in(phone_number: str, opted_in: bool, note: str | None = None) -> dict:
+    """Record whether this person agreed to be messaged on WhatsApp. Cold
+    template sends are refused unless this is set - Meta's policy requires
+    opt-in, and an unmarked number must never be messaged by accident."""
+    if get_contact(phone_number) is None:
+        upsert_contact(phone_number)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE contacts SET opted_in = ?, opted_in_at = ?, opt_in_note = ?, updated_at = ? "
+            "WHERE phone_number = ?",
+            (1 if opted_in else 0, _now() if opted_in else None, note if opted_in else None, _now(), phone_number),
+        )
+    return get_contact(phone_number)
+
+
+def is_opted_in(phone_number: str) -> bool:
+    c = get_contact(phone_number)
+    return bool(c and c["opted_in"])
+
+
+def list_opted_in() -> list[str]:
+    with db.connect() as conn:
+        rows = conn.execute("SELECT phone_number FROM contacts WHERE opted_in = 1").fetchall()
+    return [r["phone_number"] for r in rows]
 
 
 def set_bot_enabled(phone_number: str, enabled: bool) -> dict | None:
